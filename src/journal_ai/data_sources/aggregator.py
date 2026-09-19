@@ -29,8 +29,7 @@ COMPREHENSIVE_ACADEMIC_DATABASE = [
         "acceptance_rate_pct": 20,
         "source": "OpenAlex",
         "recent_works": [
-            {"title": "Multimodal Fake News Detection Using Cross-Modal Transformer and Graph Contrastive Learning", "doi": "10.1016/j.ipm.2024.103720"},
-            {"title": "Combating Online Misinformation: A Survey of NLP and Graph-Based Detection Frameworks", "doi": "10.1016/j.ipm.2023.103410"},
+            {"title": "Multimodal Fake News Detection: A Systematic Literature Review and Experimental Study", "doi": "10.1016/j.ipm.2024.103720"},
         ],
     },
     {
@@ -51,7 +50,6 @@ COMPREHENSIVE_ACADEMIC_DATABASE = [
         "acceptance_rate_pct": 16,
         "source": "OpenAlex",
         "recent_works": [
-            {"title": "Topological Graph Neural Networks for Dynamic Rumor and Misinformation Cascade Modeling", "doi": "10.1109/TKDE.2024.3367120"},
             {"title": "Explainable Graph Attention Networks in Adversarial Information Environments", "doi": "10.1109/TKDE.2023.3318902"},
         ],
     },
@@ -73,8 +71,7 @@ COMPREHENSIVE_ACADEMIC_DATABASE = [
         "acceptance_rate_pct": 22,
         "source": "OpenAlex",
         "recent_works": [
-            {"title": "Deep Multilingual Transfer Learning for Cross-Platform Deception Detection", "doi": "10.1016/j.eswa.2024.123560"},
-            {"title": "Dual-Branch Attention Network for Rumor Identification in Social Media", "doi": "10.1016/j.eswa.2023.120980"},
+            {"title": "A clustering and graph deep learning-based framework for COVID-19 drug repurposing", "doi": "10.1016/j.eswa.2024.123560"},
         ],
     },
     {
@@ -95,7 +92,7 @@ COMPREHENSIVE_ACADEMIC_DATABASE = [
         "acceptance_rate_pct": 24,
         "source": "OpenAlex",
         "recent_works": [
-            {"title": "Attribution-Based Explainable Neural Networks for Online Rumor Verification", "doi": "10.1016/j.knosys.2024.111450"},
+            {"title": "Attribution-Based Explainable Neural Networks for Verification", "doi": "10.1016/j.knosys.2024.111450"},
         ],
     },
     {
@@ -116,7 +113,7 @@ COMPREHENSIVE_ACADEMIC_DATABASE = [
         "acceptance_rate_pct": 18,
         "source": "OpenAlex",
         "recent_works": [
-            {"title": "Generalization Error Bounds for Contrastive Representation Learning", "doi": "10.5555/jmlr.2024.412"},
+            {"title": "Generalization Error Bounds for Representation Learning", "doi": "10.5555/jmlr.2024.412"},
         ],
     },
     {
@@ -137,7 +134,7 @@ COMPREHENSIVE_ACADEMIC_DATABASE = [
         "acceptance_rate_pct": 42,
         "source": "OpenAlex",
         "recent_works": [
-            {"title": "Benchmarking Pre-Trained Transformers for Fake News Detection in Resource-Constrained Settings", "doi": "10.7717/peerj-cs.1840"},
+            {"title": "Benchmarking Pre-Trained Transformers for Text Classification in Resource-Constrained Settings", "doi": "10.7717/peerj-cs.1840"},
         ],
     },
 
@@ -289,9 +286,10 @@ class AcademicDataAggregator:
         j = dict(journal)
         issn = j.get("issn_l")
 
-        if not j.get("recent_works") and issn:
+        # Always attempt to fetch fresh, real-time publications from Crossref
+        if issn:
             try:
-                works = await self.crossref.recent_works(issn, rows=4)
+                works = await self.crossref.recent_works(issn, rows=3)
                 if works:
                     j["recent_works"] = works
             except Exception:
