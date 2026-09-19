@@ -7,7 +7,7 @@ class CrossrefClient:
 
     BASE_URL = "https://api.crossref.org"
 
-    def __init__(self, email: str | None = None, timeout: float = 12.0):
+    def __init__(self, email: str | None = None, timeout: float = 4.0):
         self.email = email
         self.timeout = timeout
 

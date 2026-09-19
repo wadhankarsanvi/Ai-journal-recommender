@@ -14,7 +14,7 @@ class DOAJClient:
 
     BASE_URL = "https://doaj.org/api/v2"
 
-    def __init__(self, timeout: float = 12.0):
+    def __init__(self, timeout: float = 4.0):
         self.timeout = timeout
 
     async def search_journal_by_issn(self, issn: str) -> dict[str, Any] | None:

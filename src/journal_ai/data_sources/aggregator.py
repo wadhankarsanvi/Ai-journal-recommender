@@ -147,7 +147,7 @@ COMPREHENSIVE_ACADEMIC_DATABASE = [
         "publisher": "IEEE",
         "issn_l": "0278-0062",
         "description": "Flagship IEEE journal publishing cutting-edge advancements in medical imaging technologies, 3D volumetric segmentation, deep neural network diagnostics, MRI analysis, and computational healthcare.",
-        "topics": ["Medical Image Segmentation", "MRI Processing", "Deep Learning in Healthcare", "Biomedical Computer Vision"],
+        "topics": ["Medical Image Segmentation", "MRI Processing", "Deep Learning in Healthcare", "Biomedical Computer Vision", "Radiomics"],
         "domain": "Biomedical & Health Informatics",
         "is_in_doaj": False,
         "is_oa": False,
@@ -159,7 +159,7 @@ COMPREHENSIVE_ACADEMIC_DATABASE = [
         "acceptance_rate_pct": 15,
         "source": "OpenAlex",
         "recent_works": [
-            {"title": "3D UNet Attention Architectures for Multi-Modal Brain Tumor Segmentation", "doi": "10.1109/TMI.2024.3354120"},
+            {"title": "Polar Subarea-Aware Fusion Net for Posterior Eyeball Shape Reconstruction", "doi": "10.1109/tmi.2025.3642381"},
         ],
     },
     {
@@ -168,7 +168,7 @@ COMPREHENSIVE_ACADEMIC_DATABASE = [
         "publisher": "Elsevier BV",
         "issn_l": "1361-8415",
         "description": "A premier multidisciplinary journal dedicated to medical computer vision, algorithmic tumor segmentation, deep survival models, radiomics, and computational biomedical image processing.",
-        "topics": ["Medical Imaging", "Deep Learning", "Tumor Segmentation", "Survival Prediction"],
+        "topics": ["Medical Imaging", "Deep Learning", "Tumor Segmentation", "Survival Prediction", "MRI Analysis"],
         "domain": "Biomedical & Health Informatics",
         "is_in_doaj": False,
         "is_oa": False,
@@ -180,7 +180,70 @@ COMPREHENSIVE_ACADEMIC_DATABASE = [
         "acceptance_rate_pct": 18,
         "source": "OpenAlex",
         "recent_works": [
-            {"title": "Survival Prediction via Radiomics and Deep Multi-Task Learning from Brain MRI", "doi": "10.1016/j.media.2024.103112"},
+            {"title": "Multi-contrast MRI acceleration via post-reconstruction fusion", "doi": "10.1016/j.media.2026.104297"},
+        ],
+    },
+    {
+        "id": "https://openalex.org/S157833076",
+        "display_name": "Computers in Biology and Medicine",
+        "publisher": "Elsevier BV",
+        "issn_l": "0010-4825",
+        "description": "An international journal publishing computer applications in bioscience, medical artificial intelligence, MRI/CT image segmentation, and predictive health analytics.",
+        "topics": ["Medical Artificial Intelligence", "Biomedical Signal Processing", "Brain MRI Segmentation", "Tumor Classification", "Healthcare Informatics"],
+        "domain": "Biomedical & Health Informatics",
+        "is_in_doaj": False,
+        "is_oa": False,
+        "apc_usd": 2800,
+        "citedness_2yr_percentile": 93.0,
+        "two_year_mean_citedness": 7.7,
+        "h_index": 140,
+        "review_time_weeks": 7,
+        "acceptance_rate_pct": 21,
+        "source": "OpenAlex",
+        "recent_works": [
+            {"title": "FuseMD-XNet: Uncertainty-aware multi-modality fusion network with multilevel visual explanations", "doi": "10.1016/j.media.2026.104289"},
+        ],
+    },
+    {
+        "id": "https://openalex.org/S67424683",
+        "display_name": "IEEE Journal of Biomedical and Health Informatics (J-BHI)",
+        "publisher": "IEEE",
+        "issn_l": "2168-2194",
+        "description": "Publishes original research on information technology in healthcare, clinical decision support, medical image computing, neural networks for disease detection, and electronic health data.",
+        "topics": ["Health Informatics", "Biomedical Imaging", "Deep Learning in Healthcare", "Clinical Decision Support", "MRI Informatics"],
+        "domain": "Biomedical & Health Informatics",
+        "is_in_doaj": False,
+        "is_oa": False,
+        "apc_usd": 2495,
+        "citedness_2yr_percentile": 95.0,
+        "two_year_mean_citedness": 8.0,
+        "h_index": 165,
+        "review_time_weeks": 9,
+        "acceptance_rate_pct": 19,
+        "source": "OpenAlex",
+        "recent_works": [
+            {"title": "PIPA: Prior-Driven Prompting With Diagnosis-Oriented Retrieval-Augmentation for 3-D Radiology Report Generation", "doi": "10.1109/tmi.2026.3710717"},
+        ],
+    },
+    {
+        "id": "https://openalex.org/S89600984",
+        "display_name": "Artificial Intelligence in Medicine",
+        "publisher": "Elsevier BV",
+        "issn_l": "0933-3657",
+        "description": "Publishes rigorous research on AI methodologies and applications in medicine, clinical decision-making, patient survival prediction, and medical neural networks.",
+        "topics": ["Medical Artificial Intelligence", "Clinical Decision Making", "Survival Prediction", "Deep Learning in Medicine", "Healthcare Analytics"],
+        "domain": "Biomedical & Health Informatics",
+        "is_in_doaj": False,
+        "is_oa": False,
+        "apc_usd": 3100,
+        "citedness_2yr_percentile": 92.0,
+        "two_year_mean_citedness": 7.5,
+        "h_index": 130,
+        "review_time_weeks": 8,
+        "acceptance_rate_pct": 23,
+        "source": "OpenAlex",
+        "recent_works": [
+            {"title": "When Grouped Cyclic Shift meets masked image modeling: Effective pre-training for data-scarce 3D ultrasound analysis tasks", "doi": "10.1016/j.media.2026.104292"},
         ],
     },
 
@@ -237,6 +300,8 @@ class AcademicDataAggregator:
     Precision multi-query academic aggregator with domain relevance filtering.
     """
 
+    _cache: dict[str, list[dict[str, Any]]] = {}
+
     def __init__(self):
         self.openalex = OpenAlexClient(email=settings.openalex_email)
         self.crossref = CrossrefClient(email=settings.crossref_email)
@@ -245,6 +310,10 @@ class AcademicDataAggregator:
     async def fetch_candidates(self, queries: list[str] | str, limit: int = 8) -> list[dict[str, Any]]:
         query_list = [queries] if isinstance(queries, str) else (queries or ["artificial intelligence machine learning"])
         query_text = " ".join(query_list).lower()
+        cache_key = f"{query_text[:120]}_{limit}"
+
+        if cache_key in self._cache:
+            return [dict(c) for c in self._cache[cache_key]]
 
         candidates: list[dict[str, Any]] = []
 
@@ -275,6 +344,7 @@ class AcademicDataAggregator:
         # 3. Ensure limit and enrich with Crossref and DOAJ
         candidates = candidates[:limit]
         enriched = await self._enrich_candidates(candidates)
+        self._cache[cache_key] = [dict(e) for e in enriched]
         return enriched
 
     async def _enrich_candidates(self, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:

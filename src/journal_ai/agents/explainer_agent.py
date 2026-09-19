@@ -15,9 +15,7 @@ async def run_explainer_agent(state: dict[str, Any]) -> dict[str, list[dict[str,
     candidates = {j["id"]: j for j in state.get("candidate_journals", [])}
     llm = LLMClient()
 
-    enhanced_recommendations = []
-
-    for item in recommendations:
+    async def _process_single(item: dict[str, Any]) -> dict[str, Any]:
         rec = dict(item)
         j_id = rec.get("journal_id")
         journal_info = candidates.get(j_id, {})
@@ -25,14 +23,25 @@ async def run_explainer_agent(state: dict[str, Any]) -> dict[str, list[dict[str,
         weights = rec.get("weights", {})
 
         # Generate explanation (LLM or heuristic)
-        explanation = await generate_explanation_card(
-            llm=llm,
-            profile=profile,
-            journal=journal_info,
-            scores=scores,
-            weights=weights,
-            final_score=rec.get("score", 0),
-        )
+        try:
+            explanation = await asyncio.wait_for(
+                generate_explanation_card(
+                    llm=llm,
+                    profile=profile,
+                    journal=journal_info,
+                    scores=scores,
+                    weights=weights,
+                    final_score=rec.get("score", 0),
+                ),
+                timeout=4.0,
+            )
+        except Exception:
+            explanation = generate_heuristic_explanation(
+                profile=profile,
+                journal=journal_info,
+                scores=scores,
+                final_score=rec.get("score", 0),
+            )
 
         rec["explanation"] = explanation
         rec["publisher"] = journal_info.get("publisher", "Academic Publisher")
@@ -46,10 +55,13 @@ async def run_explainer_agent(state: dict[str, Any]) -> dict[str, list[dict[str,
             f"{journal_info.get('display_name', 'This journal')} is a peer-reviewed academic publication by "
             f"{journal_info.get('publisher', 'an academic publisher')} specializing in {', '.join(journal_info.get('topics', [])[:4]) or 'scholarly research'}."
         )
+        return rec
 
-        enhanced_recommendations.append(rec)
+    # Process all recommendations concurrently for maximum speed
+    tasks = [_process_single(item) for item in recommendations]
+    enhanced_recommendations = await asyncio.gather(*tasks)
 
-    return {"recommendations": enhanced_recommendations}
+    return {"recommendations": list(enhanced_recommendations)}
 
 
 async def generate_explanation_card(
@@ -67,7 +79,7 @@ async def generate_explanation_card(
     methodology = profile.get("methodology", "Empirical Evaluation")
     topics = ", ".join(journal.get("topics", [])[:5])
 
-    # If LLM API key is present (e.g. OpenAI), generate deep synthesis
+    # If LLM API key is present (e.g. OpenAI / Groq), generate deep synthesis
     if llm.is_llm_available():
         system_prompt = (
             "You are a Senior Academic Journal Editor and Peer Review Advisor. "
@@ -88,11 +100,34 @@ Return a JSON object with:
 - "caveats": (list of 1-2 practical trade-offs like APC fee, review timeline, or strict acceptance rate).
 - "tailoring_advice": (list of 2 specific tips for tailoring the abstract/intro to meet this journal's reviewer expectations).
 """
-        llm_res = await llm.generate_json(prompt, system_prompt=system_prompt)
-        if llm_res and "why_recommended" in llm_res:
-            return llm_res
+        try:
+            llm_res = await asyncio.wait_for(llm.generate_json(prompt, system_prompt=system_prompt), timeout=3.5)
+            if llm_res and "why_recommended" in llm_res:
+                return llm_res
+        except Exception:
+            pass
 
-    # Deterministic Heuristic Rationale
+    return generate_heuristic_explanation(
+        profile=profile,
+        journal=journal,
+        scores=scores,
+        final_score=final_score,
+    )
+
+
+def generate_heuristic_explanation(
+    profile: dict[str, Any],
+    journal: dict[str, Any],
+    scores: dict[str, float],
+    final_score: float,
+) -> dict[str, Any]:
+    """Deterministic, high-speed heuristic rationale generator."""
+    j_name = journal.get("display_name", "Unknown Journal")
+    title = profile.get("title", "Manuscript")
+    domain = profile.get("domain", "Academic Research")
+    methodology = profile.get("methodology", "Empirical Evaluation")
+    topics = ", ".join(journal.get("topics", [])[:5])
+
     why_text = (
         f"Recommended for '{title}' because of strong alignment with {j_name}'s focus on {topics or domain}. "
         f"Achieves a composite multi-criteria match score of {final_score}/100."

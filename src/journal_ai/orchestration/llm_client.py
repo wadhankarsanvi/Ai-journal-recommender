@@ -69,7 +69,7 @@ class LLMClient:
                     "temperature": 0.3,
                 }
 
-                async with httpx.AsyncClient(timeout=25.0) as client:
+                async with httpx.AsyncClient(timeout=5.0) as client:
                     resp = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -86,7 +86,7 @@ class LLMClient:
                     "contents": [{"parts": [{"text": full_prompt}]}],
                     "generationConfig": {"temperature": 0.3},
                 }
-                async with httpx.AsyncClient(timeout=25.0) as client:
+                async with httpx.AsyncClient(timeout=5.0) as client:
                     resp = await client.post(url, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -109,7 +109,7 @@ class LLMClient:
                     ],
                     "temperature": 0.3,
                 }
-                async with httpx.AsyncClient(timeout=25.0) as client:
+                async with httpx.AsyncClient(timeout=5.0) as client:
                     resp = await client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()

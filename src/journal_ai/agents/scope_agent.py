@@ -28,15 +28,17 @@ def run_scope_agent(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
         reasons = []
 
         if is_medical_imaging:
-            medical_terms = ["medical imaging", "medical image analysis", "biomedical", "biology and medicine", "health informatics", "mri", "radiology", "radiomics", "neuroimage", "cancer", "clinical informatics"]
+            medical_terms = [
+                "medical imaging", "medical image analysis", "biomedical", "biology and medicine",
+                "health informatics", "mri", "radiology", "radiomics", "neuroimage", "cancer",
+                "clinical informatics", "tumor", "healthcare", "medical artificial intelligence"
+            ]
             if any(term in j_text for term in medical_terms):
                 is_relevant = True
                 reasons.append("Direct focus on medical imaging, biomedical computing, and clinical AI")
-            elif any(cs in j_text for cs in ["pattern recognition", "computer vision", "artificial intelligence", "neural networks"]):
-                is_relevant = True
-                reasons.append("General computer vision and neural architecture venue")
             else:
                 is_relevant = False
+                reasons.append("Non-biomedical venue; lacks clinical and medical imaging scope")
 
         elif is_nlp_social:
             nlp_terms = ["information processing", "knowledge and data", "expert systems", "knowledge-based", "social network", "natural language", "computational linguistics", "web mining", "information systems"]
