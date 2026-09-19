@@ -17,17 +17,18 @@ from journal_ai.config.settings import settings
 demo = create_gradio_app()
 
 if __name__ == "__main__":
-    host = "127.0.0.1" if settings.host in ["0.0.0.0", "127.0.0.1", "localhost"] else settings.host
-    port = settings.port
+    port = int(os.environ.get("PORT", settings.port))
+    host = os.environ.get("HOST", "0.0.0.0")
 
     print("=" * 70)
     print("🎓 AI-Based Academic Journal Recommendation Assistant")
-    print(f"🚀 Open in your browser: http://127.0.0.1:{port}")
+    print(f"🚀 Server listening on: http://{host}:{port}")
     print("=" * 70)
 
     demo.launch(
-        server_name="127.0.0.1",
+        server_name="0.0.0.0",
         server_port=port,
         theme=None,
         show_error=True,
     )
+

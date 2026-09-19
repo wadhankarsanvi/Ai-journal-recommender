@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
 
     # Server settings
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.0"
     port: int = 7860
     debug: bool = False
 
