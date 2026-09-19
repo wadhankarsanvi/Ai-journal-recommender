@@ -1,0 +1,32 @@
+[project]
+name = "ai-journal-recommender"
+version = "0.1.0"
+description = "AI-Based Journal Recommendation Assistant with LangGraph orchestration"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "python-multipart>=0.0.20",
+    "pypdf>=5.4",
+    "httpx>=0.28",
+    "pydantic-settings>=2.8",
+    "langgraph>=0.3",
+    "langchain-core>=0.3",
+    "chromadb>=1.5.9",
+    "gradio>=6.26.0",
+    "reportlab>=5.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.11",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/journal_ai"]
