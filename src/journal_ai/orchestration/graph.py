@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import time
 from typing import Any
 from langgraph.graph import StateGraph, START, END
 
@@ -12,7 +14,14 @@ from journal_ai.agents.impact_agent import run_impact_agent
 from journal_ai.agents.turnaround_agent import run_turnaround_agent
 from journal_ai.agents.explainer_agent import run_explainer_agent
 from journal_ai.data_sources.aggregator import AcademicDataAggregator
-from journal_ai.rag.pipeline import RAGPipeline
+from journal_ai.rag.pipeline import get_rag_pipeline
+
+logger = logging.getLogger(__name__)
+
+# Hard ceilings so a slow upstream can never hang the UI forever.
+FETCH_TIMEOUT_S = 35.0
+RAG_INDEX_TIMEOUT_S = 60.0
+RAG_QUERY_TIMEOUT_S = 30.0
 
 
 async def manuscript_analysis_node(state: JournalState) -> dict[str, Any]:
@@ -26,6 +35,11 @@ async def retrieve_candidates_node(state: JournalState) -> dict[str, Any]:
     """
     Retrieve live academic candidates from OpenAlex, Crossref, and DOAJ,
     index candidate publications into ChromaDB, and retrieve semantic RAG evidence.
+
+    All ChromaDB work is CPU-bound and synchronous, so it is pushed onto a worker
+    thread via asyncio.to_thread(). Calling it inline would block the Gradio event
+    loop, stop SSE heartbeats, and leave the browser spinning until the proxy
+    (Render kills idle connections at ~100s) drops the request.
     """
     profile = state.get("paper_profile", {})
     queries = profile.get("academic_search_queries", [])
@@ -35,16 +49,53 @@ async def retrieve_candidates_node(state: JournalState) -> dict[str, Any]:
         queries = [" ".join(keywords[:5]) or domain or "machine learning"]
 
     # 1. Fetch real-time enriched candidates across targeted queries
+    t0 = time.perf_counter()
     aggregator = AcademicDataAggregator()
-    candidates = await aggregator.fetch_candidates(queries=queries, limit=8)
+    try:
+        candidates = await asyncio.wait_for(
+            aggregator.fetch_candidates(queries=queries, limit=8),
+            timeout=FETCH_TIMEOUT_S,
+        )
+    except Exception as exc:
+        logger.warning("Candidate fetch failed/timed out (%s); using curated index only.", exc)
+        candidates = []
+    logger.info("fetch_candidates: %d results in %.2fs", len(candidates), time.perf_counter() - t0)
 
-    # 2. Index candidate journal profiles & recent papers into RAG vector store
-    rag = RAGPipeline()
-    rag.index_journals(candidates)
+    if not candidates:
+        return {"candidate_journals": [], "rag_evidence": []}
 
-    # 3. Retrieve semantically matching evidence
-    paper_query = f"Title: {profile.get('title', '')}. Abstract: {profile.get('abstract', '')[:400]}. Keywords: {', '.join(profile.get('keywords', [])[:8])}."
-    evidence = rag.retrieve_evidence(query=paper_query, n_results=10)
+    paper_query = (
+        f"Title: {profile.get('title', '')}. "
+        f"Abstract: {profile.get('abstract', '')[:400]}. "
+        f"Keywords: {', '.join(profile.get('keywords', [])[:8])}."
+    )
+
+    # 2 + 3. Index and query the vector store OFF the event loop, with timeouts.
+    # If RAG is unavailable the run still completes: the similarity agent already
+    # degrades gracefully on empty evidence.
+    evidence: list[dict[str, Any]] = []
+    try:
+        t1 = time.perf_counter()
+        rag = await asyncio.to_thread(get_rag_pipeline)
+        logger.info("rag pipeline ready in %.2fs", time.perf_counter() - t1)
+
+        t2 = time.perf_counter()
+        n_indexed = await asyncio.wait_for(
+            asyncio.to_thread(rag.index_journals, candidates),
+            timeout=RAG_INDEX_TIMEOUT_S,
+        )
+        logger.info("index_journals: %s new chunks in %.2fs", n_indexed, time.perf_counter() - t2)
+
+        t3 = time.perf_counter()
+        evidence = await asyncio.wait_for(
+            asyncio.to_thread(rag.retrieve_evidence, paper_query, 10),
+            timeout=RAG_QUERY_TIMEOUT_S,
+        )
+        logger.info("retrieve_evidence: %d hits in %.2fs", len(evidence), time.perf_counter() - t3)
+    except asyncio.TimeoutError:
+        logger.warning("RAG stage timed out; continuing without vector evidence.")
+    except Exception as exc:
+        logger.warning("RAG stage failed (%s); continuing without vector evidence.", exc)
 
     return {
         "candidate_journals": candidates,

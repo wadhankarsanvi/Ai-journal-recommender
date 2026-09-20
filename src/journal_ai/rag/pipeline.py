@@ -1,4 +1,6 @@
 import hashlib
+import logging
+import threading
 from typing import Any
 from journal_ai.rag.chunker import chunk_text
 from journal_ai.rag.vector_store import JournalVectorStore
@@ -108,3 +110,44 @@ class RAGPipeline:
     def retrieve_evidence(self, query: str, n_results: int = 10) -> list[dict[str, Any]]:
         """Retrieve most semantically relevant evidence chunks for the query."""
         return self.vector_store.search(query=query, n_results=n_results)
+
+# ---------------------------------------------------------------------------
+# Process-wide singleton + warmup
+#
+# Building a RAGPipeline is EXPENSIVE: it opens a ChromaDB PersistentClient
+# (sqlite) and constructs DefaultEmbeddingFunction, which lazily downloads the
+# ~80 MB all-MiniLM-L6-v2 ONNX model and builds an onnxruntime session.
+# Doing that per request is the main reason the UI hangs on the first click.
+# ---------------------------------------------------------------------------
+
+logger = logging.getLogger(__name__)
+
+_pipeline_instance: "RAGPipeline | None" = None
+_pipeline_lock = threading.Lock()
+
+
+def get_rag_pipeline() -> "RAGPipeline":
+    """Return the shared RAGPipeline, building it at most once per process."""
+    global _pipeline_instance
+    if _pipeline_instance is None:
+        with _pipeline_lock:
+            if _pipeline_instance is None:
+                _pipeline_instance = RAGPipeline()
+    return _pipeline_instance
+
+
+def warmup_rag() -> bool:
+    """
+    Force the model download + ONNX session build at boot instead of on the
+    user's first click. Safe to call from a background thread.
+    """
+    try:
+        rag = get_rag_pipeline()
+        # Touch the embedding function directly so the model is actually loaded
+        # (search() short-circuits and returns [] while the collection is empty).
+        rag.vector_store.embedding_function(["warmup"])
+        logger.info("RAG warmup complete (embedding model loaded).")
+        return True
+    except Exception as exc:
+        logger.warning("RAG warmup failed, will fall back at request time: %s", exc)
+        return False

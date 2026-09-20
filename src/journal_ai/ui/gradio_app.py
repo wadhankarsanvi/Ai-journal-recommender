@@ -1,3 +1,5 @@
+import asyncio
+import asyncio
 import os
 
 import gradio as gr
@@ -69,13 +71,14 @@ async def run_recommendation(
         text_to_process = paper_text.strip()
 
     if len(text_to_process) < 30:
-        return (
+        yield (
             "⚠️ **Please provide manuscript text (at least 30 characters) or upload a PDF file.**",
             "Please provide manuscript text to inspect conflicts.",
             "",
             gr.update(value=None, visible=False),
             gr.update(value=None, visible=False),
         )
+        return
 
     preferences = {
         "scope": float(w_scope),
@@ -86,6 +89,16 @@ async def run_recommendation(
         "turnaround": float(w_speed),
     }
 
+    # Stream an interim frame so the button leaves the "pending" state immediately
+    # and the SSE connection keeps producing data (Render drops idle HTTP at ~100s).
+    yield (
+        "⏳ **Analysing manuscript, querying OpenAlex / Crossref / DOAJ, and scoring candidates...**",
+        "Running multi-criteria analysis...",
+        "",
+        gr.update(value=None, visible=False),
+        gr.update(value=None, visible=False),
+    )
+
     try:
         print("[Gradio] Recommendation workflow started", flush=True)
         result = await journal_recommendation_graph.ainvoke({
@@ -94,13 +107,14 @@ async def run_recommendation(
         })
     except Exception as exc:
         print(f"[Gradio] Recommendation workflow failed: {exc!r}", flush=True)
-        return (
+        yield (
             f"❌ **An error occurred during recommendation workflow**: `{exc}`",
             "An error occurred.",
             "",
             gr.update(value=None, visible=False),
             gr.update(value=None, visible=False),
         )
+        return
 
     profile = result.get("paper_profile", {})
     recs = result.get("recommendations", [])
@@ -223,7 +237,7 @@ async def run_recommendation(
     # Generate Downloadable PDF Report
     pdf_path = None
     try:
-        pdf_path = generate_recommendation_pdf(result)
+        pdf_path = await asyncio.to_thread(generate_recommendation_pdf, result)
     except Exception as pdf_err:
         print(f"Error generating PDF dossier: {pdf_err}")
 
@@ -232,7 +246,7 @@ async def run_recommendation(
     else:
         pdf_update = gr.update(value=None, visible=False)
 
-    return (
+    yield (
         "\n".join(md_output),
         "\n".join(conflict_md),
         export_markdown,
@@ -243,6 +257,7 @@ async def run_recommendation(
 
 async def live_journal_lookup(query: str):
     """Direct lookup of any academic journal across OpenAlex and DOAJ."""
+    query = query or ""
     if not query.strip():
         return "Please enter a journal name or keyword."
 
@@ -435,7 +450,8 @@ def create_gradio_app() -> gr.Blocks:
             run_recommendation,
             inputs=[paper_input, pdf_input, w_scope, w_sim, w_cred, w_cost, w_impact, w_speed],
             outputs=[results_output, conflict_output, export_md_box, pdf_download_main, pdf_download_export],
+            concurrency_limit=2,
+            show_progress="full",
         )
 
-    demo.queue(default_concurrency_limit=2, max_size=20)
     return demo
