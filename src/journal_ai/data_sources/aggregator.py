@@ -433,33 +433,48 @@ class AcademicDataAggregator:
         if cache_key in self._cache:
             return [dict(c) for c in self._cache[cache_key]]
 
+        # Live retrieval is the primary source. Query every extracted search
+        # phrase so unfamiliar disciplines are not forced into the curated demo
+        # categories. Results are deduplicated by OpenAlex source ID/name.
         candidates: list[dict[str, Any]] = []
+        live_results = await asyncio.gather(
+            *[
+                self.openalex.search_sources(query, per_page=max(4, limit))
+                for query in query_list[:4]
+                if query.strip()
+            ],
+            return_exceptions=True,
+        )
+        seen_sources: set[str] = set()
+        for result in live_results:
+            if isinstance(result, Exception):
+                continue
+            for journal in result:
+                source_key = str(journal.get("id") or journal.get("display_name", "")).lower()
+                if source_key and source_key not in seen_sources:
+                    seen_sources.add(source_key)
+                    candidates.append(dict(journal))
+                if len(candidates) >= limit:
+                    break
+            if len(candidates) >= limit:
+                break
 
-        # 1. Match from the academic curated domain index based on topic proximity
-        scored_benchmark = []
-        for journal in COMPREHENSIVE_ACADEMIC_DATABASE:
-            j_text = f"{journal['display_name']} {' '.join(journal.get('topics', []))}".lower()
-            match_count = sum(1 for word in query_text.split() if len(word) >= 4 and word in j_text)
-            if match_count > 0:
-                scored_benchmark.append((match_count, journal))
+        # Curated data is an offline fallback only, never the default source.
+        if not candidates:
+            scored_benchmark = []
+            for journal in COMPREHENSIVE_ACADEMIC_DATABASE:
+                j_text = f"{journal['display_name']} {' '.join(journal.get('topics', []))}".lower()
+                match_count = sum(
+                    1 for word in query_text.split()
+                    if len(word) >= 4 and word in j_text
+                )
+                if match_count > 0:
+                    scored_benchmark.append((match_count, journal))
 
-        scored_benchmark.sort(key=lambda x: x[0], reverse=True)
-        for _, bj in scored_benchmark[:limit]:
-            candidates.append(dict(bj))
+            scored_benchmark.sort(key=lambda x: x[0], reverse=True)
+            candidates = [dict(journal) for _, journal in scored_benchmark[:limit]]
 
-        # 2. Query OpenAlex with specific targeted search queries
-        try:
-            openalex_results = await self.openalex.search_sources(query_list[0], per_page=4)
-            for oj in openalex_results:
-                # Discard medical/health journals if search query is purely CS/AI/Cybersecurity
-                oj_text = f"{oj.get('display_name', '')} {' '.join(oj.get('topics', []))}".lower()
-                is_irrelevant_medical = ("medicine" in oj_text or "health care" in oj_text or "maternal" in oj_text) and not any(cs in query_text for cs in ["medical", "health", "clinical", "tumor", "mri"])
-                if not is_irrelevant_medical and not any(c.get("display_name") == oj.get("display_name") for c in candidates):
-                    candidates.append(oj)
-        except Exception:
-            pass
-
-        # 3. Ensure limit and enrich with Crossref and DOAJ
+        # Enrich live/fallback candidates with Crossref and DOAJ.
         candidates = candidates[:limit]
         enriched = await self._enrich_candidates(candidates)
         self._cache[cache_key] = [dict(e) for e in enriched]

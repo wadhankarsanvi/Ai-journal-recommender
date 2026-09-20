@@ -114,6 +114,15 @@ def extract_manuscript_profile_heuristic(cleaned_text: str) -> dict[str, Any]:
             "ieee transactions on pattern analysis and machine intelligence",
             "pattern recognition computer vision deep learning",
         ]
+    # 6. Agriculture, plant science, soil, and environmental systems
+    elif any(k in text_lower for k in ["agriculture", "cultivation", "crop", "quinoa", "soil", "microbiome", "irrigation", "drought", "plant", "evapotranspiration", "semi-arid"]):
+        domain = "Agricultural & Environmental Sciences"
+        subfields = ["Crop Science", "Soil Microbiology", "Agricultural Water Management", "Environmental Monitoring"]
+        queries = [
+            "crop science soil microbiome drought irrigation",
+            "agricultural water management satellite monitoring",
+            "plant stress environmental microbiome cultivation",
+        ]
     else:
         # Preserve the manuscript's actual vocabulary for unfamiliar domains.
         # Fixed AI queries caused unrelated biomedical venues to be returned.

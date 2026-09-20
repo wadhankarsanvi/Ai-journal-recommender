@@ -140,12 +140,23 @@ def conflict_resolution_node(state: JournalState) -> dict[str, Any]:
         if scores and scope_score >= 40.0:
             spread = max(scores.values()) - min(scores.values())
             tradeoffs = []
-            if scores.get("impact", 0) >= 85 and scores.get("cost", 0) <= 50:
-                tradeoffs.append("High Impact Prestige vs. Significant APC Publication Fee")
-            if scores.get("impact", 0) >= 85 and scores.get("turnaround", 0) <= 55:
-                tradeoffs.append("Top-Tier Flagship Rigor vs. Extended Review Timeline")
-            if scores.get("cost", 0) >= 90 and scores.get("impact", 0) < 70:
-                tradeoffs.append("Diamond Open Access / Zero Cost vs. Moderate Citation Velocity")
+            score_gaps = {
+                "impact_cost": scores.get("impact", 0) - scores.get("cost", 0),
+                "impact_speed": scores.get("impact", 0) - scores.get("turnaround", 0),
+                "scope_cost": scores.get("scope", 0) - scores.get("cost", 0),
+            }
+            if score_gaps["impact_cost"] >= 25:
+                tradeoffs.append(
+                    f"Impact ({scores.get('impact', 0):.0f}) is {score_gaps['impact_cost']:.0f} points above cost fit ({scores.get('cost', 0):.0f})"
+                )
+            if score_gaps["impact_speed"] >= 25:
+                tradeoffs.append(
+                    f"Impact ({scores.get('impact', 0):.0f}) is {score_gaps['impact_speed']:.0f} points above turnaround ({scores.get('turnaround', 0):.0f})"
+                )
+            if score_gaps["scope_cost"] >= 25:
+                tradeoffs.append(
+                    f"Topic fit ({scores.get('scope', 0):.0f}) is {score_gaps['scope_cost']:.0f} points above cost fit ({scores.get('cost', 0):.0f})"
+                )
 
             if spread >= 25 or tradeoffs:
                 conflicts.append({
@@ -154,10 +165,7 @@ def conflict_resolution_node(state: JournalState) -> dict[str, Any]:
                     "scores": scores,
                     "spread": round(spread, 1),
                     "tradeoffs": tradeoffs or ["Multi-dimensional metric dispersion"],
-                    "resolution": (
-                        "Multi-Criteria Decision Analysis (MCDA) normalized weights applied "
-                        "to align with user-selected priority vector."
-                    ),
+                    "resolution": "The final rank uses the normalized preference weights; review the score breakdown before choosing a venue.",
                 })
 
         resolved.append({
