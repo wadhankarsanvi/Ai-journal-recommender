@@ -66,7 +66,7 @@ def run_scope_agent(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
         elif is_marine_acoustics:
             acoustic_terms = [
                 "acoustic", "underwater", "sonar", "ocean", "marine", "hydrophone",
-                "signal processing", "oceanic engineering", "remote sensing",
+                "oceanic engineering", "marine sensing", "marine observation",
             ]
             if any(term in j_text for term in acoustic_terms):
                 is_relevant = True

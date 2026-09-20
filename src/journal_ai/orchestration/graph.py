@@ -134,7 +134,10 @@ def conflict_resolution_node(state: JournalState) -> dict[str, Any]:
                 if str(item.get("journal_id")) == str(j_id):
                     scores[agent_name] = float(item.get("score", 70.0))
 
-        if scores:
+        # Do not present conflicts for venues already rejected by scope gating.
+        # The tab should explain trade-offs among actual recommendations only.
+        scope_score = scores.get("scope", 0.0)
+        if scores and scope_score >= 40.0:
             spread = max(scores.values()) - min(scores.values())
             tradeoffs = []
             if scores.get("impact", 0) >= 85 and scores.get("cost", 0) <= 50:
