@@ -78,12 +78,32 @@ class RAGPipeline:
         if not documents:
             return 0
 
+        existing_ids = self.vector_store.existing_ids(ids)
+
+        new_documents = []
+        new_ids = []
+        new_metadatas = []
+
+        for document, doc_id, metadata in zip(
+            documents,
+            ids,
+            metadatas,
+        ):
+            if doc_id not in existing_ids:
+                new_documents.append(document)
+                new_ids.append(doc_id)
+                new_metadatas.append(metadata)
+
+        if not new_documents:
+            return 0
+
         self.vector_store.add_documents(
-            documents=documents,
-            ids=ids,
-            metadatas=metadatas,
+            documents=new_documents,
+            ids=new_ids,
+            metadatas=new_metadatas,
         )
-        return len(documents)
+
+        return len(new_documents)
 
     def retrieve_evidence(self, query: str, n_results: int = 10) -> list[dict[str, Any]]:
         """Retrieve most semantically relevant evidence chunks for the query."""

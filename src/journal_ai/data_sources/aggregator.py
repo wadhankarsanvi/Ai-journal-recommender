@@ -301,6 +301,8 @@ class AcademicDataAggregator:
     """
 
     _cache: dict[str, list[dict[str, Any]]] = {}
+    _crossref_cache: dict[str, list[dict[str, Any]]] = {}
+    _doaj_cache: dict[str, dict[str, Any] | None] = {}
 
     def __init__(self):
         self.openalex = OpenAlexClient(email=settings.openalex_email)
@@ -356,24 +358,52 @@ class AcademicDataAggregator:
         j = dict(journal)
         issn = j.get("issn_l")
 
-        # Always attempt to fetch fresh, real-time publications from Crossref
+                # Crossref lookup with in-process caching
         if issn:
             try:
-                works = await self.crossref.recent_works(issn, rows=3)
+                if issn in self._crossref_cache:
+                    works = self._crossref_cache[issn]
+                else:
+                    works = await self.crossref.recent_works(
+                        issn,
+                        rows=3,
+                    )
+                    self._crossref_cache[issn] = works
+
                 if works:
                     j["recent_works"] = works
+
             except Exception:
                 pass
 
         if issn:
             try:
-                doaj_info = await self.doaj.search_journal_by_issn(issn)
+                if issn in self._doaj_cache:
+                    doaj_info = self._doaj_cache[issn]
+                else:
+                    doaj_info = await self.doaj.search_journal_by_issn(issn)
+                    self._doaj_cache[issn] = doaj_info
+
                 if doaj_info:
                     j["is_in_doaj"] = True
-                    j["has_doaj_seal"] = doaj_info.get("has_seal", False)
-                    j["review_process"] = doaj_info.get("review_process", ["Peer review"])
-                    if j.get("apc_usd") is None and doaj_info.get("has_apc"):
-                        j["apc_usd"] = doaj_info.get("apc_amount", 0)
+                    j["has_doaj_seal"] = doaj_info.get(
+                        "has_seal",
+                        False,
+                    )
+                    j["review_process"] = doaj_info.get(
+                        "review_process",
+                        ["Peer review"],
+                    )
+
+                    if (
+                        j.get("apc_usd") is None
+                        and doaj_info.get("has_apc")
+                    ):
+                        j["apc_usd"] = doaj_info.get(
+                            "apc_amount",
+                            0,
+                        )
+
             except Exception:
                 pass
 

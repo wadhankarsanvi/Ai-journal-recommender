@@ -51,6 +51,21 @@ class JournalVectorStore:
             metadatas=clean_metadatas,
         )
 
+    def existing_ids(
+        self,
+        ids: list[str],
+        ) -> set[str]:
+        """Return IDs that already exist in the Chroma collection."""
+
+        if not ids:
+            return set()
+
+        result = self.collection.get(
+            ids=ids,
+        )
+
+        return set(result.get("ids", []))
+    
     def search(
         self,
         query: str,

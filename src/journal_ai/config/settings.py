@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     llm_provider: str = "auto"  # 'auto', 'gemini', 'openai', 'groq', or 'heuristic'
     gemini_model: str = "gemini-2.5-flash"
     openai_model: str = "gpt-4o-mini"
+    enable_llm_explanations: bool = True
 
     # Server settings
     host: str = "0.0.0.0"

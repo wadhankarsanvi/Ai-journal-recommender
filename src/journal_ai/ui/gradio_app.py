@@ -1,13 +1,11 @@
 import os
-from typing import Any
+
 import gradio as gr
 
+from journal_ai.data_sources.openalex import OpenAlexClient
 from journal_ai.ingestion.pdf_parser import extract_pdf_text
 from journal_ai.orchestration.graph import journal_recommendation_graph
-from journal_ai.data_sources.openalex import OpenAlexClient
-from journal_ai.data_sources.doaj import DOAJClient
 from journal_ai.reporting.pdf_generator import generate_recommendation_pdf
-
 
 # Sample test manuscripts across different academic disciplines
 SAMPLE_NLP_MISINFORMATION = """Deep Transfer Learning Framework for Automated Fake News and Misinformation Detection in Multilingual Social Networks
@@ -43,11 +41,13 @@ def handle_file_upload(file):
     if file is None:
         return ""
     try:
-        with open(file.name, "rb") as f:
+        file_path = os.fspath(file) if isinstance(file, (str, os.PathLike)) else file.name
+        with open(file_path, "rb") as f:
             pdf_bytes = f.read()
         return extract_pdf_text(pdf_bytes)
     except Exception as exc:
-        return f"Error extracting PDF text: {exc}"
+        print(f"Error extracting PDF text: {exc}")
+        return ""
 
 
 async def run_recommendation(

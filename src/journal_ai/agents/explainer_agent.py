@@ -1,6 +1,7 @@
 import asyncio
 import json
 from typing import Any
+from journal_ai.config.settings import settings
 from journal_ai.orchestration.llm_client import LLMClient
 
 
@@ -80,7 +81,7 @@ async def generate_explanation_card(
     topics = ", ".join(journal.get("topics", [])[:5])
 
     # If LLM API key is present (e.g. OpenAI / Groq), generate deep synthesis
-    if llm.is_llm_available():
+    if llm.is_llm_available() and settings.enable_llm_explanations:
         system_prompt = (
             "You are a Senior Academic Journal Editor and Peer Review Advisor. "
             "Explain specifically why this journal is suitable for the submitted manuscript."

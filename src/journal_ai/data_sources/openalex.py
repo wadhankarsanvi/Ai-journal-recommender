@@ -1,4 +1,6 @@
+import asyncio
 from typing import Any
+
 import httpx
 
 
@@ -96,7 +98,7 @@ class OpenAlexClient:
 
         # 1. Try finding sources via relevant works
         try:
-            works = await self.search_works(query, per_page=min(30, per_page * 4))
+            works = await self.search_works(query, per_page=min(20, per_page * 2))
             for work in works:
                 loc = work.get("primary_location") or {}
                 source = loc.get("source") or {}
@@ -129,27 +131,35 @@ class OpenAlexClient:
             except Exception:
                 pass
 
-        # 3. Retrieve full source metadata for the top candidates
-        normalized_sources = []
-        for s_id, s_stub in list(sources_dict.items())[:per_page]:
-            full_source = None
+        # 3. Retrieve full source metadata concurrently
+        selected_sources = list(sources_dict.items())[:per_page]
+
+        async def enrich_source(
+            s_id: str,
+            s_stub: dict[str, Any],
+        ) -> dict[str, Any]:
             try:
                 full_source = await self.get_source(s_id)
             except Exception:
-                pass
+                full_source = None
 
             if full_source:
                 norm = self._normalize_source(full_source)
+
                 if s_stub.get("sample_work_title"):
                     norm["sample_work_title"] = s_stub["sample_work_title"]
                     norm["sample_work_doi"] = s_stub["sample_work_doi"]
-                normalized_sources.append(norm)
-            else:
-                # Fallback to stub normalized format
-                norm = self._normalize_source(s_stub)
-                normalized_sources.append(norm)
 
-        return normalized_sources
+                return norm
+
+            return self._normalize_source(s_stub)
+
+        return await asyncio.gather(
+            *[
+                enrich_source(s_id, s_stub)
+                for s_id, s_stub in selected_sources
+            ]
+        )
 
     @staticmethod
     def _normalize_source(item: dict[str, Any]) -> dict[str, Any]:
