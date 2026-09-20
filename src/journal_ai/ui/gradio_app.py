@@ -61,6 +61,7 @@ async def run_recommendation(
     w_speed: float,
 ):
     """Execute LangGraph recommendation graph, generate downloadable PDF, and format clean markdown output."""
+    paper_text = paper_text or ""
     text_to_process = ""
     if pdf_file is not None:
         text_to_process = handle_file_upload(pdf_file)
@@ -86,11 +87,13 @@ async def run_recommendation(
     }
 
     try:
+        print("[Gradio] Recommendation workflow started", flush=True)
         result = await journal_recommendation_graph.ainvoke({
             "paper_text": text_to_process,
             "preferences": preferences,
         })
     except Exception as exc:
+        print(f"[Gradio] Recommendation workflow failed: {exc!r}", flush=True)
         return (
             f"❌ **An error occurred during recommendation workflow**: `{exc}`",
             "An error occurred.",
@@ -434,4 +437,5 @@ def create_gradio_app() -> gr.Blocks:
             outputs=[results_output, conflict_output, export_md_box, pdf_download_main, pdf_download_export],
         )
 
+    demo.queue(default_concurrency_limit=2, max_size=20)
     return demo
