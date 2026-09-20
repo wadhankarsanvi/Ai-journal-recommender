@@ -76,9 +76,19 @@ def run_scope_agent(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
                 reasons.append("Non-marine venue; lacks underwater acoustics and signal-processing scope")
 
         else:
-            # General computing / AI / data science match
-            is_relevant = True
-            reasons.append("Relevant academic computing and AI scope")
+            # Unknown domains still need observable vocabulary overlap; prestige
+            # alone must not turn an unrelated venue into a recommendation.
+            generic_terms = [
+                "machine learning", "artificial intelligence", "computer science",
+                "data science", "signal processing", "engineering", "sensing",
+                "remote sensing", "optimization", "statistics",
+            ]
+            keyword_hits = sum(1 for kw in keywords if len(kw) >= 4 and kw in j_text)
+            is_relevant = keyword_hits > 0 or any(term in j_text for term in generic_terms if term in " ".join(keywords))
+            if is_relevant:
+                reasons.append("Venue vocabulary overlaps the manuscript's extracted research terms")
+            else:
+                reasons.append("No meaningful vocabulary overlap with the manuscript")
 
         if not is_relevant:
             score = 15.0

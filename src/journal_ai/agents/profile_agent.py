@@ -115,16 +115,20 @@ def extract_manuscript_profile_heuristic(cleaned_text: str) -> dict[str, Any]:
             "pattern recognition computer vision deep learning",
         ]
     else:
+        # Preserve the manuscript's actual vocabulary for unfamiliar domains.
+        # Fixed AI queries caused unrelated biomedical venues to be returned.
+        specific_terms = [
+            word for word in keywords_from_text(cleaned_text)
+            if word not in {"learning", "research", "data", "method", "model"}
+        ][:8]
+        query_seed = " ".join(specific_terms) or title
         queries = [
-            "journal of machine learning research",
-            "knowledge-based systems artificial intelligence",
+            query_seed[:120],
+            f"{query_seed[:80]} journal",
         ]
 
     # Keyword extraction
-    clean_words = [re.sub(r"[^\w\-]", "", w).lower() for w in words]
-    stopwords = {"about", "above", "after", "again", "against", "all", "and", "any", "are", "because", "been", "before", "being", "below", "between", "both", "but", "by", "could", "did", "does", "doing", "down", "during", "each", "few", "for", "from", "further", "had", "has", "have", "having", "here", "how", "into", "its", "itself", "just", "more", "most", "other", "our", "ours", "out", "over", "own", "same", "should", "some", "such", "than", "that", "the", "their", "theirs", "them", "themselves", "then", "there", "these", "they", "this", "those", "through", "under", "until", "very", "was", "were", "what", "when", "where", "which", "while", "who", "whom", "why", "with", "would", "using", "based", "paper", "study", "results", "proposed", "method", "methods", "approach", "model", "models", "show", "shows", "also", "framework", "novel", "system", "performance", "analysis", "evaluation"}
-    keywords = [w for w in clean_words if len(w) >= 4 and w not in stopwords]
-    keywords = list(dict.fromkeys(keywords))[:10]
+    keywords = keywords_from_text(cleaned_text)[:10]
 
     return {
         "title": title,
@@ -137,6 +141,26 @@ def extract_manuscript_profile_heuristic(cleaned_text: str) -> dict[str, Any]:
         "keywords": keywords,
         "academic_search_queries": queries,
     }
+
+
+def keywords_from_text(text: str) -> list[str]:
+    """Extract stable content words for fallback search and profiling."""
+    stopwords = {
+        "about", "above", "after", "again", "against", "all", "also", "and", "any", "are",
+        "because", "been", "before", "being", "below", "between", "both", "but", "by", "could",
+        "did", "does", "doing", "down", "during", "each", "few", "for", "from", "further",
+        "had", "has", "have", "having", "here", "how", "into", "its", "itself", "just", "more",
+        "most", "other", "our", "over", "own", "same", "should", "some", "such", "than", "that",
+        "the", "their", "them", "then", "these", "they", "this", "those", "through", "until", "very",
+        "was", "were", "what", "when", "where", "which", "while", "who", "why", "with", "would",
+        "using", "based", "paper", "study", "results", "proposed", "method", "methods", "approach",
+        "model", "models", "show", "shows", "framework", "novel", "system", "performance", "analysis",
+        "evaluation", "aims", "aim", "for", "learning",
+    }
+    return list(dict.fromkeys(
+        word for word in (re.sub(r"[^\w\-]", "", value).lower() for value in text.split())
+        if len(word) >= 4 and word not in stopwords
+    ))
 
 
 extract_manuscript_profile = extract_manuscript_profile_heuristic

@@ -1,10 +1,10 @@
 import asyncio
-import asyncio
 import os
 
 import gradio as gr
 
 from journal_ai.data_sources.openalex import OpenAlexClient
+from journal_ai.config.settings import settings
 from journal_ai.ingestion.pdf_parser import extract_pdf_text
 from journal_ai.orchestration.graph import journal_recommendation_graph
 from journal_ai.reporting.pdf_generator import generate_recommendation_pdf
@@ -43,7 +43,14 @@ def handle_file_upload(file):
     if file is None:
         return ""
     try:
-        file_path = os.fspath(file) if isinstance(file, (str, os.PathLike)) else file.name
+        if isinstance(file, (str, os.PathLike)):
+            file_path = os.fspath(file)
+        elif isinstance(file, dict):
+            file_path = file.get("path") or file.get("name")
+        else:
+            file_path = getattr(file, "path", None) or getattr(file, "name", None)
+        if not file_path:
+            raise ValueError("Uploaded PDF path was not provided by Gradio.")
         with open(file_path, "rb") as f:
             pdf_bytes = f.read()
         return extract_pdf_text(pdf_bytes)
@@ -67,6 +74,15 @@ async def run_recommendation(
     text_to_process = ""
     if pdf_file is not None:
         text_to_process = handle_file_upload(pdf_file)
+        if not text_to_process.strip() and not paper_text.strip():
+            yield (
+                "❌ **Could not extract text from this PDF.** It may be scanned/image-only or unreadable. Please upload a text-based PDF or paste the manuscript text.",
+                "PDF extraction failed; no manuscript was processed.",
+                "",
+                gr.update(value=None, visible=False),
+                gr.update(value=None, visible=False),
+            )
+            return
     if not text_to_process.strip():
         text_to_process = paper_text.strip()
 
@@ -263,7 +279,10 @@ async def live_journal_lookup(query: str):
 
     client = OpenAlexClient()
     try:
-        sources = await client.search_sources_direct(query, per_page=4)
+        sources = await asyncio.wait_for(
+            client.search_sources_direct(query, per_page=4),
+            timeout=20.0,
+        )
         if not sources:
             return f"No journals found matching '{query}'."
 
@@ -282,12 +301,15 @@ async def live_journal_lookup(query: str):
             res.append(f"- **Open Access**: {oa} | **2-Yr Mean Citations**: `{two_yr}` | **h-index**: `{h_idx}`")
             res.append(f"- **Topics**: {topics}\n")
         return "\n".join(res)
+    except asyncio.TimeoutError:
+        return "The live journal search timed out. Please try a shorter query."
     except Exception as exc:
         return f"Error querying live academic APIs: {exc}"
 
 
 def create_gradio_app() -> gr.Blocks:
     """Build the clean, accessible Gradio User Interface with PDF download and background placeholder text."""
+    rag_status = "Active" if settings.enable_rag else "Fallback mode"
     with gr.Blocks(title="AI Academic Journal Recommendation Assistant") as demo:
         gr.Markdown(
             """
@@ -298,11 +320,11 @@ def create_gradio_app() -> gr.Blocks:
 
         with gr.Row():
             gr.Markdown(
-                """
+                f"""
                 🟢 **OpenAlex API**: Connected &nbsp;|&nbsp;
                 🟢 **Crossref API**: Connected &nbsp;|&nbsp;
                 🟢 **DOAJ**: Verified &nbsp;|&nbsp;
-                🟢 **ChromaDB RAG**: Active &nbsp;|&nbsp;
+                🟢 **ChromaDB RAG**: {rag_status} &nbsp;|&nbsp;
                 🟢 **Multi-Agent Engine**: LangGraph v1.2
                 """
             )
