@@ -54,7 +54,7 @@ async def retrieve_candidates_node(state: JournalState) -> dict[str, Any]:
     aggregator = AcademicDataAggregator()
     try:
         candidates = await asyncio.wait_for(
-            aggregator.fetch_candidates(queries=queries, limit=8),
+            aggregator.fetch_candidates(queries=queries, limit=12),
             timeout=FETCH_TIMEOUT_S,
         )
     except Exception as exc:
@@ -212,14 +212,14 @@ def ranking_node(state: JournalState) -> dict[str, Any]:
         scores = item.get("scores", {})
         scope_score = scores.get("scope", 70.0)
 
-        # Strict Scope Gating: Out-of-scope journals are heavily downranked
+        # Strict scope failures are heavily downranked; adjacent live venues
+        # remain available for comparison rather than disappearing.
         scope_multiplier = 1.0 if scope_score >= 60 else (scope_score / 100.0)
 
         weighted_score = sum(scores.get(k, 60.0) * normalized_weights[k] for k in normalized_weights)
         final_score = round(weighted_score * scope_multiplier, 1)
 
-        # Filter completely out-of-scope venues
-        if scope_score >= 40:
+        if scope_score > 15:
             recommendations.append({
                 "journal_id": item["journal_id"],
                 "journal": item["journal"],
@@ -229,6 +229,7 @@ def ranking_node(state: JournalState) -> dict[str, Any]:
             })
 
     recommendations.sort(key=lambda x: x["score"], reverse=True)
+    recommendations = recommendations[:8]
 
     for rank, item in enumerate(recommendations, start=1):
         item["rank"] = rank

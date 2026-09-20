@@ -51,7 +51,8 @@ def run_scope_agent(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
                 is_relevant = True
                 reasons.append("Core machine learning and data science scope")
             else:
-                is_relevant = False
+                is_relevant = not any(term in j_text for term in ["medicine", "biomedical", "clinical", "cancer"])
+                reasons.append("Adjacent information or computing venue from live topic retrieval")
 
         elif is_cyber_iot:
             cyber_terms = ["internet of things", "information forensics", "security", "cryptography", "privacy", "dependable", "sensor", "networks"]
@@ -62,7 +63,8 @@ def run_scope_agent(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
                 is_relevant = True
                 reasons.append("Core computing venue")
             else:
-                is_relevant = False
+                is_relevant = not any(term in j_text for term in ["medicine", "biomedical", "clinical", "cancer"])
+                reasons.append("Adjacent engineering or sensing venue from live topic retrieval")
 
         elif is_marine_acoustics:
             acoustic_terms = [
@@ -73,8 +75,8 @@ def run_scope_agent(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
                 is_relevant = True
                 reasons.append("Relevant venue for underwater acoustics, sonar, marine sensing, or signal processing")
             else:
-                is_relevant = False
-                reasons.append("Non-marine venue; lacks underwater acoustics and signal-processing scope")
+                is_relevant = not any(term in j_text for term in ["medicine", "biomedical", "clinical", "health informatics"])
+                reasons.append("Adjacent engineering or signal venue from live topic retrieval")
 
         elif is_agriculture_environment:
             agriculture_terms = [
@@ -86,8 +88,8 @@ def run_scope_agent(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
                 is_relevant = True
                 reasons.append("Relevant venue for agriculture, plant science, soil, ecology, or environmental monitoring")
             else:
-                is_relevant = False
-                reasons.append("No agriculture or environmental research scope detected")
+                is_relevant = not any(term in j_text for term in ["medicine", "biomedical", "clinical", "cancer", "cryptography"])
+                reasons.append("Adjacent environmental or life-science venue from live topic retrieval")
 
         else:
             # Unknown domains still need observable vocabulary overlap; prestige
