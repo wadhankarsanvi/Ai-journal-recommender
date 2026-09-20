@@ -97,7 +97,16 @@ def extract_manuscript_profile_heuristic(cleaned_text: str) -> dict[str, Any]:
             "ieee transactions on information forensics and security",
             "computers and security intrusion detection",
         ]
-    # 4. Computer Vision
+    # 4. Underwater acoustics / marine signal processing
+    elif any(k in text_lower for k in ["underwater acoustic", "acoustic target", "sonar", "hydrophone", "marine acoustic", "underwater sound", "ocean acoustic"]):
+        domain = "Marine Engineering & Acoustic Signal Processing"
+        subfields = ["Underwater Acoustic Signal Processing", "Sonar Target Recognition", "Self-Supervised Representation Learning", "Marine Sensing"]
+        queries = [
+            "underwater acoustic signal processing target recognition",
+            "sonar image processing marine sensing",
+            "IEEE Journal of Oceanic Engineering acoustic recognition",
+        ]
+    # 5. Computer Vision
     elif any(k in text_lower for k in ["vision", "object detection", "image synthesis", "yolo", "pose estimation"]):
         domain = "Computer Vision & Pattern Recognition"
         subfields = ["Computer Vision", "Visual Representation Learning", "Pattern Recognition"]

@@ -18,11 +18,12 @@ def run_scope_agent(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     is_medical_imaging = any(w in domain or w in title for w in ["mri", "tumor", "medical", "biomedical", "brain", "glioma", "segmentation", "radiomics", "radiology", "clinical"])
     is_nlp_social = any(w in domain or w in title for w in ["nlp", "misinformation", "fake news", "social network", "language", "disinformation"])
     is_cyber_iot = any(w in domain or w in title for w in ["iot", "security", "cryptography", "intrusion", "quantum", "sensor"])
+    is_marine_acoustics = any(w in domain or w in title or w in " ".join(keywords) for w in ["underwater", "acoustic", "sonar", "marine", "ocean", "hydrophone"])
 
     for journal in state.get("candidate_journals", []):
         j_name = str(journal.get("display_name", "")).lower()
         topics = [str(t).lower() for t in (journal.get("topics") or [])]
-        j_text = f"{j_name} {' '.join(topics)}"
+        j_text = f"{j_name} {' '.join(topics)} {journal.get('domain', '')}".lower()
 
         is_relevant = False
         reasons = []
@@ -61,6 +62,18 @@ def run_scope_agent(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
                 reasons.append("Core computing venue")
             else:
                 is_relevant = False
+
+        elif is_marine_acoustics:
+            acoustic_terms = [
+                "acoustic", "underwater", "sonar", "ocean", "marine", "hydrophone",
+                "signal processing", "oceanic engineering", "remote sensing",
+            ]
+            if any(term in j_text for term in acoustic_terms):
+                is_relevant = True
+                reasons.append("Relevant venue for underwater acoustics, sonar, marine sensing, or signal processing")
+            else:
+                is_relevant = False
+                reasons.append("Non-marine venue; lacks underwater acoustics and signal-processing scope")
 
         else:
             # General computing / AI / data science match
