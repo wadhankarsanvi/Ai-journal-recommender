@@ -10,6 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     OMP_NUM_THREADS=1 \
     TOKENIZERS_PARALLELISM=false \
     ANONYMIZED_TELEMETRY=False \
+    ENABLE_RAG=false \
     VECTORSTORE_DIR=/tmp/vectorstore
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

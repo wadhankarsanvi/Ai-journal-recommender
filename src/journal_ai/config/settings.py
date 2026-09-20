@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     # Vector store settings
     vectorstore_dir: str = "data/vectorstore"
+    enable_rag: bool = True
 
     model_config = SettingsConfigDict(
         env_file=".env",

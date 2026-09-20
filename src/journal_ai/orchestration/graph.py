@@ -15,6 +15,7 @@ from journal_ai.agents.turnaround_agent import run_turnaround_agent
 from journal_ai.agents.explainer_agent import run_explainer_agent
 from journal_ai.data_sources.aggregator import AcademicDataAggregator
 from journal_ai.rag.pipeline import get_rag_pipeline
+from journal_ai.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,10 @@ async def retrieve_candidates_node(state: JournalState) -> dict[str, Any]:
 
     if not candidates:
         return {"candidate_journals": [], "rag_evidence": []}
+
+    if not settings.enable_rag:
+        logger.info("RAG disabled by configuration; using similarity fallback.")
+        return {"candidate_journals": candidates, "rag_evidence": []}
 
     paper_query = (
         f"Title: {profile.get('title', '')}. "

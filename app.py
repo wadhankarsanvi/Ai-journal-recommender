@@ -45,8 +45,11 @@ def _warmup() -> None:
     ONNX model, and blocking here would delay the port bind past Render's health
     check window and make the deploy look hung.
     """
-    log.info("Starting RAG warmup in background...")
-    warmup_rag()
+    if settings.enable_rag:
+        log.info("Starting RAG warmup in background...")
+        warmup_rag()
+    else:
+        log.info("RAG warmup skipped because ENABLE_RAG is disabled.")
 
 
 if __name__ == "__main__":
