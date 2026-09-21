@@ -280,7 +280,7 @@ async def live_journal_lookup(query: str):
     client = OpenAlexClient()
     try:
         sources = await asyncio.wait_for(
-            client.search_sources_direct(query, per_page=4),
+            client.search_sources(query, per_page=5),
             timeout=20.0,
         )
         if not sources:

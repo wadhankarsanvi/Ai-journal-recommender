@@ -1,6 +1,4 @@
 import asyncio
-import logging
-import time
 from typing import Any
 from langgraph.graph import StateGraph, START, END
 
@@ -14,15 +12,7 @@ from journal_ai.agents.impact_agent import run_impact_agent
 from journal_ai.agents.turnaround_agent import run_turnaround_agent
 from journal_ai.agents.explainer_agent import run_explainer_agent
 from journal_ai.data_sources.aggregator import AcademicDataAggregator
-from journal_ai.rag.pipeline import get_rag_pipeline
-from journal_ai.config.settings import settings
-
-logger = logging.getLogger(__name__)
-
-# Hard ceilings so a slow upstream can never hang the UI forever.
-FETCH_TIMEOUT_S = 35.0
-RAG_INDEX_TIMEOUT_S = 60.0
-RAG_QUERY_TIMEOUT_S = 30.0
+from journal_ai.rag.pipeline import RAGPipeline
 
 
 async def manuscript_analysis_node(state: JournalState) -> dict[str, Any]:
@@ -36,11 +26,6 @@ async def retrieve_candidates_node(state: JournalState) -> dict[str, Any]:
     """
     Retrieve live academic candidates from OpenAlex, Crossref, and DOAJ,
     index candidate publications into ChromaDB, and retrieve semantic RAG evidence.
-
-    All ChromaDB work is CPU-bound and synchronous, so it is pushed onto a worker
-    thread via asyncio.to_thread(). Calling it inline would block the Gradio event
-    loop, stop SSE heartbeats, and leave the browser spinning until the proxy
-    (Render kills idle connections at ~100s) drops the request.
     """
     profile = state.get("paper_profile", {})
     queries = profile.get("academic_search_queries", [])
@@ -50,57 +35,16 @@ async def retrieve_candidates_node(state: JournalState) -> dict[str, Any]:
         queries = [" ".join(keywords[:5]) or domain or "machine learning"]
 
     # 1. Fetch real-time enriched candidates across targeted queries
-    t0 = time.perf_counter()
     aggregator = AcademicDataAggregator()
-    try:
-        candidates = await asyncio.wait_for(
-            aggregator.fetch_candidates(queries=queries, limit=12),
-            timeout=FETCH_TIMEOUT_S,
-        )
-    except Exception as exc:
-        logger.warning("Candidate fetch failed/timed out (%s); using curated index only.", exc)
-        candidates = []
-    logger.info("fetch_candidates: %d results in %.2fs", len(candidates), time.perf_counter() - t0)
+    candidates = await aggregator.fetch_candidates(queries=queries, limit=6)
 
-    if not candidates:
-        return {"candidate_journals": [], "rag_evidence": []}
+    # 2. Index candidate journal profiles & recent papers into RAG vector store
+    rag = RAGPipeline()
+    rag.index_journals(candidates)
 
-    if not settings.enable_rag:
-        logger.info("RAG disabled by configuration; using similarity fallback.")
-        return {"candidate_journals": candidates, "rag_evidence": []}
-
-    paper_query = (
-        f"Title: {profile.get('title', '')}. "
-        f"Abstract: {profile.get('abstract', '')[:400]}. "
-        f"Keywords: {', '.join(profile.get('keywords', [])[:8])}."
-    )
-
-    # 2 + 3. Index and query the vector store OFF the event loop, with timeouts.
-    # If RAG is unavailable the run still completes: the similarity agent already
-    # degrades gracefully on empty evidence.
-    evidence: list[dict[str, Any]] = []
-    try:
-        t1 = time.perf_counter()
-        rag = await asyncio.to_thread(get_rag_pipeline)
-        logger.info("rag pipeline ready in %.2fs", time.perf_counter() - t1)
-
-        t2 = time.perf_counter()
-        n_indexed = await asyncio.wait_for(
-            asyncio.to_thread(rag.index_journals, candidates),
-            timeout=RAG_INDEX_TIMEOUT_S,
-        )
-        logger.info("index_journals: %s new chunks in %.2fs", n_indexed, time.perf_counter() - t2)
-
-        t3 = time.perf_counter()
-        evidence = await asyncio.wait_for(
-            asyncio.to_thread(rag.retrieve_evidence, paper_query, 10),
-            timeout=RAG_QUERY_TIMEOUT_S,
-        )
-        logger.info("retrieve_evidence: %d hits in %.2fs", len(evidence), time.perf_counter() - t3)
-    except asyncio.TimeoutError:
-        logger.warning("RAG stage timed out; continuing without vector evidence.")
-    except Exception as exc:
-        logger.warning("RAG stage failed (%s); continuing without vector evidence.", exc)
+    # 3. Retrieve semantically matching evidence
+    paper_query = f"Title: {profile.get('title', '')}. Abstract: {profile.get('abstract', '')[:400]}. Keywords: {', '.join(profile.get('keywords', [])[:8])}."
+    evidence = rag.retrieve_evidence(query=paper_query, n_results=10)
 
     return {
         "candidate_journals": candidates,
@@ -134,29 +78,15 @@ def conflict_resolution_node(state: JournalState) -> dict[str, Any]:
                 if str(item.get("journal_id")) == str(j_id):
                     scores[agent_name] = float(item.get("score", 70.0))
 
-        # Do not present conflicts for venues already rejected by scope gating.
-        # The tab should explain trade-offs among actual recommendations only.
-        scope_score = scores.get("scope", 0.0)
-        if scores and scope_score >= 40.0:
+        if scores:
             spread = max(scores.values()) - min(scores.values())
             tradeoffs = []
-            score_gaps = {
-                "impact_cost": scores.get("impact", 0) - scores.get("cost", 0),
-                "impact_speed": scores.get("impact", 0) - scores.get("turnaround", 0),
-                "scope_cost": scores.get("scope", 0) - scores.get("cost", 0),
-            }
-            if score_gaps["impact_cost"] >= 25:
-                tradeoffs.append(
-                    f"Impact ({scores.get('impact', 0):.0f}) is {score_gaps['impact_cost']:.0f} points above cost fit ({scores.get('cost', 0):.0f})"
-                )
-            if score_gaps["impact_speed"] >= 25:
-                tradeoffs.append(
-                    f"Impact ({scores.get('impact', 0):.0f}) is {score_gaps['impact_speed']:.0f} points above turnaround ({scores.get('turnaround', 0):.0f})"
-                )
-            if score_gaps["scope_cost"] >= 25:
-                tradeoffs.append(
-                    f"Topic fit ({scores.get('scope', 0):.0f}) is {score_gaps['scope_cost']:.0f} points above cost fit ({scores.get('cost', 0):.0f})"
-                )
+            if scores.get("impact", 0) >= 85 and scores.get("cost", 0) <= 50:
+                tradeoffs.append("High Impact Prestige vs. Significant APC Publication Fee")
+            if scores.get("impact", 0) >= 85 and scores.get("turnaround", 0) <= 55:
+                tradeoffs.append("Top-Tier Flagship Rigor vs. Extended Review Timeline")
+            if scores.get("cost", 0) >= 90 and scores.get("impact", 0) < 70:
+                tradeoffs.append("Diamond Open Access / Zero Cost vs. Moderate Citation Velocity")
 
             if spread >= 25 or tradeoffs:
                 conflicts.append({
@@ -165,7 +95,10 @@ def conflict_resolution_node(state: JournalState) -> dict[str, Any]:
                     "scores": scores,
                     "spread": round(spread, 1),
                     "tradeoffs": tradeoffs or ["Multi-dimensional metric dispersion"],
-                    "resolution": "The final rank uses the normalized preference weights; review the score breakdown before choosing a venue.",
+                    "resolution": (
+                        "Multi-Criteria Decision Analysis (MCDA) normalized weights applied "
+                        "to align with user-selected priority vector."
+                    ),
                 })
 
         resolved.append({
@@ -212,14 +145,14 @@ def ranking_node(state: JournalState) -> dict[str, Any]:
         scores = item.get("scores", {})
         scope_score = scores.get("scope", 70.0)
 
-        # Strict scope failures are heavily downranked; adjacent live venues
-        # remain available for comparison rather than disappearing.
+        # Strict Scope Gating: Out-of-scope journals are heavily downranked
         scope_multiplier = 1.0 if scope_score >= 60 else (scope_score / 100.0)
 
         weighted_score = sum(scores.get(k, 60.0) * normalized_weights[k] for k in normalized_weights)
         final_score = round(weighted_score * scope_multiplier, 1)
 
-        if scope_score > 15:
+        # Filter completely out-of-scope venues
+        if scope_score >= 40:
             recommendations.append({
                 "journal_id": item["journal_id"],
                 "journal": item["journal"],
@@ -229,7 +162,6 @@ def ranking_node(state: JournalState) -> dict[str, Any]:
             })
 
     recommendations.sort(key=lambda x: x["score"], reverse=True)
-    recommendations = recommendations[:8]
 
     for rank, item in enumerate(recommendations, start=1):
         item["rank"] = rank
