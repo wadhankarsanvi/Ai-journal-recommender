@@ -114,30 +114,36 @@ def extract_manuscript_profile_heuristic(cleaned_text: str) -> dict[str, Any]:
             "ieee transactions on pattern analysis and machine intelligence",
             "pattern recognition computer vision deep learning",
         ]
-    # 6. Agriculture, plant science, soil, and environmental systems
-    elif any(k in text_lower for k in ["agriculture", "cultivation", "crop", "quinoa", "soil", "microbiome", "irrigation", "drought", "plant", "evapotranspiration", "semi-arid"]):
-        domain = "Agricultural & Environmental Sciences"
-        subfields = ["Crop Science", "Soil Microbiology", "Agricultural Water Management", "Environmental Monitoring"]
+    # 6. Agriculture, plant science, soil, carbon credits, and environmental systems
+    elif any(k in text_lower for k in ["agriculture", "farming", "farmer", "cultivation", "crop", "quinoa", "soil", "microbiome", "irrigation", "drought", "plant", "carbon", "sustainable", "sustainability", "evapotranspiration", "semi-arid", "land use", "climate", "ecology"]):
+        domain = "Agricultural, Environmental & Sustainability Sciences"
+        subfields = ["Agricultural Policy & Rural Studies", "Carbon Farming & Sustainability", "Land Use & Environmental Economics", "Stakeholder Perception"]
+        top_terms = [w for w in keywords_from_text(cleaned_text) if w not in {"learning", "research", "data", "method", "model", "analysis"}][:6]
         queries = [
-            "crop science soil microbiome drought irrigation",
-            "agricultural water management satellite monitoring",
-            "plant stress environmental microbiome cultivation",
+            " ".join(top_terms[:4]) if top_terms else "carbon credit farming trust",
+            " ".join(top_terms[2:6]) if len(top_terms) >= 5 else "sustainable agriculture policy",
+            "land use policy agricultural carbon",
         ]
     else:
-        # Preserve the manuscript's actual vocabulary for unfamiliar domains.
-        # Fixed AI queries caused unrelated biomedical venues to be returned.
-        specific_terms = [
+        # Dynamic search queries for unfamiliar/interdisciplinary domains
+        top_terms = [
             word for word in keywords_from_text(cleaned_text)
-            if word not in {"learning", "research", "data", "method", "model"}
+            if word not in {"learning", "research", "data", "method", "model", "analysis"}
         ][:8]
-        query_seed = " ".join(specific_terms) or title
-        queries = [
-            query_seed[:120],
-            f"{query_seed[:80]} journal",
-        ]
+        q1 = " ".join(top_terms[:4]) if top_terms else title[:50]
+        q2 = " ".join(top_terms[2:6]) if len(top_terms) >= 5 else (q1 + " journal")
+        q3 = " ".join(top_terms[:3]) + " research"
+        queries = [q for q in [q1, q2, q3] if q.strip()]
 
     # Keyword extraction
     keywords = keywords_from_text(cleaned_text)[:10]
+
+    # Methodology detection
+    methodology = "Empirical Quantitative & Experimental Evaluation"
+    if any(k in text_lower for k in ["perception", "stakeholder", "survey", "interview", "questionnaire", "qualitative", "case study", "confidence", "trust"]):
+        methodology = "Empirical Stakeholder Survey & Perception-Based Analysis"
+    elif any(k in text_lower for k in ["neural", "deep learning", "transformer", "cnn", "segmentation", "attention", "yolo", "mri"]):
+        methodology = "Empirical Neural Architecture & Experimental Benchmark Evaluation"
 
     return {
         "title": title,
@@ -145,8 +151,8 @@ def extract_manuscript_profile_heuristic(cleaned_text: str) -> dict[str, Any]:
         "word_count": len(words),
         "domain": domain,
         "subfields": subfields,
-        "methodology": "Empirical Neural Architecture & Experimental Benchmark Evaluation",
-        "core_contribution": "Proposes a deep learning architecture with quantitative empirical benchmarking.",
+        "methodology": methodology,
+        "core_contribution": "Provides empirical evidence, domain insights, and methodological analysis.",
         "keywords": keywords,
         "academic_search_queries": queries,
     }

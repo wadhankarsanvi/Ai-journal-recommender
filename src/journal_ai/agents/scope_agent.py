@@ -19,7 +19,7 @@ def run_scope_agent(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     is_nlp_social = any(w in domain or w in title for w in ["nlp", "misinformation", "fake news", "social network", "language", "disinformation"])
     is_cyber_iot = any(w in domain or w in title for w in ["iot", "security", "cryptography", "intrusion", "quantum", "sensor"])
     is_marine_acoustics = any(w in domain or w in title or w in " ".join(keywords) for w in ["underwater", "acoustic", "sonar", "marine", "ocean", "hydrophone"])
-    is_agriculture_environment = any(w in domain or w in title or w in " ".join(keywords) for w in ["agricultur", "plant", "crop", "soil", "microbiome", "drought", "irrigation", "environment", "ecology", "remote sensing"])
+    is_agriculture_environment = any(w in domain or w in title or w in " ".join(keywords) for w in ["agricultur", "farm", "plant", "crop", "soil", "microbiome", "drought", "irrigation", "environment", "ecology", "carbon", "sustainable", "sustainability", "rural", "land use", "remote sensing"])
 
     for journal in state.get("candidate_journals", []):
         j_name = str(journal.get("display_name", "")).lower()
@@ -80,13 +80,13 @@ def run_scope_agent(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
 
         elif is_agriculture_environment:
             agriculture_terms = [
-                "plant", "crop", "agricultur", "soil", "microbiome", "drought", "water",
-                "irrigation", "environment", "ecology", "sustainability", "remote sensing",
-                "food", "nutrition", "land use",
+                "plant", "crop", "agricultur", "farm", "soil", "microbiome", "drought", "water",
+                "irrigation", "environment", "ecology", "sustainability", "sustainable", "carbon",
+                "climate", "rural", "land use", "policy", "economics", "food", "nutrition", "remote sensing",
             ]
             if any(term in j_text for term in agriculture_terms):
                 is_relevant = True
-                reasons.append("Relevant venue for agriculture, plant science, soil, ecology, or environmental monitoring")
+                reasons.append("Relevant venue for agriculture, farming, environmental policy, sustainability, or ecology")
             else:
                 is_relevant = not any(term in j_text for term in ["medicine", "biomedical", "clinical", "cancer", "cryptography"])
                 reasons.append("Adjacent environmental or life-science venue from live topic retrieval")

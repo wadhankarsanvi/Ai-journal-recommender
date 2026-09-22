@@ -145,21 +145,19 @@ def ranking_node(state: JournalState) -> dict[str, Any]:
         scores = item.get("scores", {})
         scope_score = scores.get("scope", 70.0)
 
-        # Strict Scope Gating: Out-of-scope journals are heavily downranked
-        scope_multiplier = 1.0 if scope_score >= 60 else (scope_score / 100.0)
+        # Strict Scope Gating: Out-of-scope journals are proportionally downranked
+        scope_multiplier = 1.0 if scope_score >= 60 else max(0.2, scope_score / 100.0)
 
         weighted_score = sum(scores.get(k, 60.0) * normalized_weights[k] for k in normalized_weights)
         final_score = round(weighted_score * scope_multiplier, 1)
 
-        # Filter completely out-of-scope venues
-        if scope_score >= 40:
-            recommendations.append({
-                "journal_id": item["journal_id"],
-                "journal": item["journal"],
-                "score": final_score,
-                "agent_scores": scores,
-                "weights": {k: round(v, 3) for k, v in normalized_weights.items()},
-            })
+        recommendations.append({
+            "journal_id": item["journal_id"],
+            "journal": item["journal"],
+            "score": final_score,
+            "agent_scores": scores,
+            "weights": {k: round(v, 3) for k, v in normalized_weights.items()},
+        })
 
     recommendations.sort(key=lambda x: x["score"], reverse=True)
 
