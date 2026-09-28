@@ -90,24 +90,50 @@ def conflict_resolution_node(state: JournalState) -> dict[str, Any]:
 
         if scores:
             spread = max(scores.values()) - min(scores.values())
-            tradeoffs = []
-            if scores.get("impact", 0) >= 85 and scores.get("cost", 0) <= 50:
-                tradeoffs.append("High Impact Prestige vs. Significant APC Publication Fee")
-            if scores.get("impact", 0) >= 85 and scores.get("turnaround", 0) <= 55:
-                tradeoffs.append("Top-Tier Flagship Rigor vs. Extended Review Timeline")
-            if scores.get("cost", 0) >= 90 and scores.get("impact", 0) < 70:
-                tradeoffs.append("Diamond Open Access / Zero Cost vs. Moderate Citation Velocity")
+            highest_metric = max(scores, key=scores.get)
+            lowest_metric = min(scores, key=scores.get)
+            high_val = scores[highest_metric]
+            low_val = scores[lowest_metric]
 
-            if spread >= 25 or tradeoffs:
+            metric_labels = {
+                "scope": "Manuscript Scope Fit",
+                "similarity": "Semantic Content Alignment",
+                "credibility": "Publisher Indexing & Credibility",
+                "cost": "Author APC Cost / Fee Feasibility",
+                "impact": "Citation Impact & Prestige",
+                "turnaround": "Review Speed & Turnaround",
+            }
+
+            tradeoffs = []
+            # Specific heuristic rules
+            if scores.get("impact", 0) >= 80 and scores.get("cost", 0) <= 55:
+                tradeoffs.append(f"Top-Tier Impact ({scores.get('impact', 0):.0f}%) vs. Higher Author APC Fee ({scores.get('cost', 0):.0f}%)")
+            if scores.get("impact", 0) >= 80 and scores.get("turnaround", 0) <= 60:
+                tradeoffs.append(f"Flagship Prestige ({scores.get('impact', 0):.0f}%) vs. Extended Peer-Review Timeline ({scores.get('turnaround', 0):.0f}%)")
+            if scores.get("cost", 0) >= 85 and scores.get("impact", 0) < 70:
+                tradeoffs.append(f"Affordable / Open Access ({scores.get('cost', 0):.0f}%) vs. Moderate Citation Velocity ({scores.get('impact', 0):.0f}%)")
+            if scores.get("scope", 0) >= 85 and scores.get("similarity", 0) <= 65:
+                tradeoffs.append(f"Broad Domain Alignment ({scores.get('scope', 0):.0f}%) vs. Moderate Keyword Match ({scores.get('similarity', 0):.0f}%)")
+
+            # If no specific rule matched but spread is high, generate dynamic pair
+            if not tradeoffs and spread >= 20:
+                tradeoffs.append(
+                    f"Strong {metric_labels.get(highest_metric, highest_metric)} ({high_val:.0f}%) vs. "
+                    f"Lower {metric_labels.get(lowest_metric, lowest_metric)} ({low_val:.0f}%)"
+                )
+
+            if spread >= 20 or tradeoffs:
                 conflicts.append({
                     "journal_id": j_id,
                     "journal": journal.get("display_name", "Unknown Journal"),
                     "scores": scores,
                     "spread": round(spread, 1),
-                    "tradeoffs": tradeoffs or ["Multi-dimensional metric dispersion"],
+                    "highest_metric": f"{metric_labels.get(highest_metric, highest_metric)} ({high_val:.0f}%)",
+                    "lowest_metric": f"{metric_labels.get(lowest_metric, lowest_metric)} ({low_val:.0f}%)",
+                    "tradeoffs": tradeoffs,
                     "resolution": (
-                        "Multi-Criteria Decision Analysis (MCDA) normalized weights applied "
-                        "to align with user-selected priority vector."
+                        f"Ranked via MCDA weighted utility prioritizing {metric_labels.get(highest_metric, highest_metric).lower()} "
+                        f"while penalizing {metric_labels.get(lowest_metric, lowest_metric).lower()} according to active preset sliders."
                     ),
                 })
 
