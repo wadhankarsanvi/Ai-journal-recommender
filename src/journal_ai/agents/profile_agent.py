@@ -30,10 +30,16 @@ Return a JSON object with EXACTLY these keys:
 - "keywords": (list of strings) 6-10 specific technical keyphrases (e.g. ["brain tumor", "mri segmentation", "radiomics", "brats", "glioma"]).
 - "academic_search_queries": (list of strings) 3 targeted 3-5 word search queries to find the most specific journals in OpenAlex/Crossref (e.g., ["medical image analysis mri segmentation", "ieee transactions medical imaging brain tumor", "computers in biology and medicine"]).
 """
-        llm_profile = await llm.generate_json(prompt, system_prompt=system_prompt)
-        if llm_profile and "title" in llm_profile and "academic_search_queries" in llm_profile:
-            llm_profile["word_count"] = len(cleaned_text.split())
-            return llm_profile
+        try:
+            llm_profile = await asyncio.wait_for(
+                llm.generate_json(prompt, system_prompt=system_prompt),
+                timeout=3.5,
+            )
+            if llm_profile and "title" in llm_profile and "academic_search_queries" in llm_profile:
+                llm_profile["word_count"] = len(cleaned_text.split())
+                return llm_profile
+        except Exception:
+            pass
 
     # 2. Heuristic High-Precision Extraction Fallback
     return extract_manuscript_profile_heuristic(cleaned_text)

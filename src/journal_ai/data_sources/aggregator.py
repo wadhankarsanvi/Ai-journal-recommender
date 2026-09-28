@@ -425,7 +425,7 @@ class AcademicDataAggregator:
         self.crossref = CrossrefClient(email=settings.crossref_email)
         self.doaj = DOAJClient()
 
-    async def fetch_candidates(self, queries: list[str] | str, limit: int = 8) -> list[dict[str, Any]]:
+    async def fetch_candidates(self, queries: list[str] | str, limit: int = 6) -> list[dict[str, Any]]:
         query_list = [queries] if isinstance(queries, str) else (queries or ["artificial intelligence machine learning"])
         query_text = " ".join(query_list).lower()
         cache_key = f"{query_text[:120]}_{limit}"
@@ -433,50 +433,66 @@ class AcademicDataAggregator:
         if cache_key in self._cache:
             return [dict(c) for c in self._cache[cache_key]]
 
-        # Live retrieval is the primary source. Query every extracted search
-        # phrase so unfamiliar disciplines are not forced into the curated demo
-        # categories. Results are deduplicated by OpenAlex source ID/name.
         candidates: list[dict[str, Any]] = []
-        live_results = await asyncio.gather(
-            *[
-                self.openalex.search_sources(query, per_page=max(4, limit))
-                for query in query_list[:4]
-                if query.strip()
-            ],
-            return_exceptions=True,
-        )
         seen_sources: set[str] = set()
-        for result in live_results:
-            if isinstance(result, Exception):
-                continue
-            for journal in result:
-                source_key = str(journal.get("id") or journal.get("display_name", "")).lower()
-                if source_key and source_key not in seen_sources:
-                    seen_sources.add(source_key)
-                    candidates.append(dict(journal))
-                if len(candidates) >= limit:
-                    break
-            if len(candidates) >= limit:
-                break
 
-        # Curated data is an offline fallback only, never the default source.
-        if not candidates:
+        # 1. Live retrieval with fast timeout (max 2 queries to avoid rate limits)
+        active_queries = [q.strip() for q in query_list[:2] if q.strip()]
+        if active_queries:
+            try:
+                live_tasks = [
+                    self.openalex.search_sources(query, per_page=limit)
+                    for query in active_queries
+                ]
+                live_results = await asyncio.wait_for(
+                    asyncio.gather(*live_tasks, return_exceptions=True),
+                    timeout=3.5,
+                )
+                for result in live_results:
+                    if isinstance(result, Exception):
+                        continue
+                    for journal in result:
+                        source_key = str(journal.get("id") or journal.get("display_name", "")).lower()
+                        if source_key and source_key not in seen_sources:
+                            seen_sources.add(source_key)
+                            candidates.append(dict(journal))
+                        if len(candidates) >= limit:
+                            break
+                    if len(candidates) >= limit:
+                        break
+            except Exception:
+                pass
+
+        # 2. If live search returned insufficient candidates, supplement with curated database
+        if len(candidates) < limit:
             scored_benchmark = []
             for journal in COMPREHENSIVE_ACADEMIC_DATABASE:
-                j_text = f"{journal['display_name']} {' '.join(journal.get('topics', []))}".lower()
+                source_key = str(journal.get("id") or journal.get("display_name", "")).lower()
+                if source_key in seen_sources:
+                    continue
+                j_text = f"{journal['display_name']} {' '.join(journal.get('topics', []))} {journal.get('domain', '')}".lower()
                 match_count = sum(
                     1 for word in query_text.split()
                     if len(word) >= 4 and word in j_text
                 )
-                if match_count > 0:
-                    scored_benchmark.append((match_count, journal))
+                scored_benchmark.append((match_count, journal))
 
             scored_benchmark.sort(key=lambda x: x[0], reverse=True)
-            candidates = [dict(journal) for _, journal in scored_benchmark[:limit]]
+            for _, journal in scored_benchmark:
+                candidates.append(dict(journal))
+                if len(candidates) >= limit:
+                    break
 
-        # Enrich live/fallback candidates with Crossref and DOAJ.
+        # 3. Enrich with Crossref and DOAJ (fast concurrent enrichment)
         candidates = candidates[:limit]
-        enriched = await self._enrich_candidates(candidates)
+        try:
+            enriched = await asyncio.wait_for(
+                self._enrich_candidates(candidates),
+                timeout=3.0,
+            )
+        except Exception:
+            enriched = candidates
+
         self._cache[cache_key] = [dict(e) for e in enriched]
         return enriched
 
@@ -489,21 +505,20 @@ class AcademicDataAggregator:
         j = dict(journal)
         issn = j.get("issn_l")
 
-                # Crossref lookup with in-process caching
+        # Crossref lookup with in-process caching
         if issn:
             try:
                 if issn in self._crossref_cache:
                     works = self._crossref_cache[issn]
                 else:
-                    works = await self.crossref.recent_works(
-                        issn,
-                        rows=3,
+                    works = await asyncio.wait_for(
+                        self.crossref.recent_works(issn, rows=2),
+                        timeout=2.0,
                     )
                     self._crossref_cache[issn] = works
 
                 if works:
                     j["recent_works"] = works
-
             except Exception:
                 pass
 
@@ -512,29 +527,19 @@ class AcademicDataAggregator:
                 if issn in self._doaj_cache:
                     doaj_info = self._doaj_cache[issn]
                 else:
-                    doaj_info = await self.doaj.search_journal_by_issn(issn)
+                    doaj_info = await asyncio.wait_for(
+                        self.doaj.search_journal_by_issn(issn),
+                        timeout=2.0,
+                    )
                     self._doaj_cache[issn] = doaj_info
 
                 if doaj_info:
                     j["is_in_doaj"] = True
-                    j["has_doaj_seal"] = doaj_info.get(
-                        "has_seal",
-                        False,
-                    )
-                    j["review_process"] = doaj_info.get(
-                        "review_process",
-                        ["Peer review"],
-                    )
+                    j["has_doaj_seal"] = doaj_info.get("has_seal", False)
+                    j["review_process"] = doaj_info.get("review_process", ["Peer review"])
 
-                    if (
-                        j.get("apc_usd") is None
-                        and doaj_info.get("has_apc")
-                    ):
-                        j["apc_usd"] = doaj_info.get(
-                            "apc_amount",
-                            0,
-                        )
-
+                    if j.get("apc_usd") is None and doaj_info.get("has_apc"):
+                        j["apc_usd"] = doaj_info.get("apc_amount", 0)
             except Exception:
                 pass
 

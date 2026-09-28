@@ -12,7 +12,8 @@ from journal_ai.agents.impact_agent import run_impact_agent
 from journal_ai.agents.turnaround_agent import run_turnaround_agent
 from journal_ai.agents.explainer_agent import run_explainer_agent
 from journal_ai.data_sources.aggregator import AcademicDataAggregator
-from journal_ai.rag.pipeline import RAGPipeline
+from journal_ai.rag.pipeline import get_rag_pipeline
+from journal_ai.config.settings import settings
 
 
 async def manuscript_analysis_node(state: JournalState) -> dict[str, Any]:
@@ -38,13 +39,22 @@ async def retrieve_candidates_node(state: JournalState) -> dict[str, Any]:
     aggregator = AcademicDataAggregator()
     candidates = await aggregator.fetch_candidates(queries=queries, limit=6)
 
-    # 2. Index candidate journal profiles & recent papers into RAG vector store
-    rag = RAGPipeline()
-    rag.index_journals(candidates)
-
-    # 3. Retrieve semantically matching evidence
-    paper_query = f"Title: {profile.get('title', '')}. Abstract: {profile.get('abstract', '')[:400]}. Keywords: {', '.join(profile.get('keywords', [])[:8])}."
-    evidence = rag.retrieve_evidence(query=paper_query, n_results=10)
+    # 2. Index candidate journal profiles & recent papers into RAG vector store (if enabled)
+    evidence = []
+    if settings.enable_rag:
+        try:
+            rag = get_rag_pipeline()
+            await asyncio.wait_for(
+                asyncio.to_thread(rag.index_journals, candidates),
+                timeout=3.0,
+            )
+            paper_query = f"Title: {profile.get('title', '')}. Abstract: {profile.get('abstract', '')[:400]}. Keywords: {', '.join(profile.get('keywords', [])[:8])}."
+            evidence = await asyncio.wait_for(
+                asyncio.to_thread(rag.retrieve_evidence, paper_query, 10),
+                timeout=2.0,
+            )
+        except Exception as exc:
+            print(f"[RAG] Indexing/retrieval fallback note: {exc}", flush=True)
 
     return {
         "candidate_journals": candidates,

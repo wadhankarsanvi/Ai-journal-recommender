@@ -70,21 +70,31 @@ async def run_recommendation(
     w_speed: float,
 ):
     """Execute LangGraph recommendation graph, generate downloadable PDF, and format clean markdown output."""
-    paper_text = paper_text or ""
+    paper_text = (paper_text or "").strip()
     text_to_process = ""
     if pdf_file is not None:
-        text_to_process = handle_file_upload(pdf_file)
-        if not text_to_process.strip() and not paper_text.strip():
+        try:
+            text_to_process = await asyncio.to_thread(handle_file_upload, pdf_file)
+        except Exception as exc:
+            print(f"[Gradio] PDF upload extraction error: {exc}")
+            text_to_process = ""
+
+        if not text_to_process.strip() and not paper_text:
             yield (
-                "❌ **Could not extract text from this PDF.** It may be scanned/image-only or unreadable. Please upload a text-based PDF or paste the manuscript text.",
+                "❌ **Could not extract readable text from this PDF.** It may be scanned or image-only. Please paste the manuscript title and abstract directly.",
                 "PDF extraction failed; no manuscript was processed.",
                 "",
                 gr.update(value=None, visible=False),
                 gr.update(value=None, visible=False),
             )
             return
+
     if not text_to_process.strip():
-        text_to_process = paper_text.strip()
+        text_to_process = paper_text
+
+    # Cap text length to prevent memory spikes on massive full papers
+    if len(text_to_process) > 15000:
+        text_to_process = text_to_process[:15000]
 
     if len(text_to_process) < 30:
         yield (
@@ -117,10 +127,23 @@ async def run_recommendation(
 
     try:
         print("[Gradio] Recommendation workflow started", flush=True)
-        result = await journal_recommendation_graph.ainvoke({
-            "paper_text": text_to_process,
-            "preferences": preferences,
-        })
+        result = await asyncio.wait_for(
+            journal_recommendation_graph.ainvoke({
+                "paper_text": text_to_process,
+                "preferences": preferences,
+            }),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        print("[Gradio] Recommendation workflow timed out after 30s", flush=True)
+        yield (
+            "⚠️ **The recommendation analysis took longer than expected and timed out.** Please try with a slightly shorter abstract or check your connection.",
+            "Recommendation timed out.",
+            "",
+            gr.update(value=None, visible=False),
+            gr.update(value=None, visible=False),
+        )
+        return
     except Exception as exc:
         print(f"[Gradio] Recommendation workflow failed: {exc!r}", flush=True)
         yield (

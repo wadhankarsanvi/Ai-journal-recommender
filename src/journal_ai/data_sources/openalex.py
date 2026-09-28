@@ -13,9 +13,13 @@ class OpenAlexClient:
 
     BASE_URL = "https://api.openalex.org"
 
-    def __init__(self, email: str | None = None, timeout: float = 15.0):
-        self.email = email
+    def __init__(self, email: str | None = None, timeout: float = 4.0):
+        self.email = email or "researcher@academic-assistant.ai"
         self.timeout = timeout
+        self.headers = {
+            "User-Agent": f"AI-Journal-Assistant/1.0 (mailto:{self.email})",
+            "Accept": "application/json",
+        }
 
     def _params(self, extra: dict[str, Any]) -> dict[str, Any]:
         params = dict(extra)
@@ -26,7 +30,7 @@ class OpenAlexClient:
     async def search_works(
         self,
         query: str,
-        per_page: int = 20,
+        per_page: int = 10,
     ) -> list[dict[str, Any]]:
         """Search scholarly works related to the research manuscript topic."""
         params = self._params({
@@ -35,20 +39,23 @@ class OpenAlexClient:
             "sort": "relevance_score:desc",
         })
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.BASE_URL}/works",
-                params=params,
-            )
-            response.raise_for_status()
-            payload = response.json()
-
-        return payload.get("results", [])
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+                response = await client.get(
+                    f"{self.BASE_URL}/works",
+                    params=params,
+                )
+                if response.status_code != 200:
+                    return []
+                payload = response.json()
+            return payload.get("results", [])
+        except Exception:
+            return []
 
     async def search_sources_direct(
         self,
         query: str,
-        per_page: int = 10,
+        per_page: int = 8,
     ) -> list[dict[str, Any]]:
         """Search journal and venue sources directly by keyword/topic."""
         params = self._params({
@@ -57,16 +64,18 @@ class OpenAlexClient:
             "filter": "type:journal",
         })
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.BASE_URL}/sources",
-                params=params,
-            )
-            if response.status_code != 200:
-                return []
-            payload = response.json()
-
-        return [self._normalize_source(s) for s in payload.get("results", [])]
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+                response = await client.get(
+                    f"{self.BASE_URL}/sources",
+                    params=params,
+                )
+                if response.status_code != 200:
+                    return []
+                payload = response.json()
+            return [self._normalize_source(s) for s in payload.get("results", [])]
+        except Exception:
+            return []
 
     async def get_source(
         self,
@@ -76,90 +85,62 @@ class OpenAlexClient:
         source_id = source_id.rstrip("/")
         source_key = source_id.split("/")[-1] if "/" in source_id else source_id
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.BASE_URL}/sources/{source_key}",
-                params=self._params({}),
-            )
-            if response.status_code != 200:
-                return None
-            return response.json()
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers) as client:
+                response = await client.get(
+                    f"{self.BASE_URL}/sources/{source_key}",
+                    params=self._params({}),
+                )
+                if response.status_code != 200:
+                    return None
+                return response.json()
+        except Exception:
+            return None
 
     async def search_sources(
         self,
         query: str,
-        per_page: int = 8,
+        per_page: int = 6,
     ) -> list[dict[str, Any]]:
         """
-        Hybrid search: Queries relevant works first to find actual publishing venues,
-        complemented with direct source matching.
+        Fast direct + works hybrid search with aggressive caching and fast timeouts.
         """
         sources_dict: dict[str, dict[str, Any]] = {}
 
-        # 1. Try finding sources via relevant works
+        # 1. Direct sources search (fastest, direct match on journal title/scope)
         try:
-            works = await self.search_works(query, per_page=min(20, per_page * 2))
-            for work in works:
-                loc = work.get("primary_location") or {}
-                source = loc.get("source") or {}
-                source_id = source.get("id")
-                if source_id and source_id not in sources_dict and source.get("type") == "journal":
-                    sources_dict[source_id] = {
-                        "id": source_id,
-                        "display_name": source.get("display_name", "Unknown Journal"),
-                        "publisher": source.get("host_organization_name"),
-                        "issn_l": source.get("issn_l"),
-                        "is_oa": bool(source.get("is_oa", False)),
-                        "is_in_doaj": bool(source.get("is_in_doaj", False)),
-                        "sample_work_title": work.get("title", ""),
-                        "sample_work_doi": work.get("doi", ""),
-                    }
-                if len(sources_dict) >= per_page:
-                    break
+            direct_sources = await self.search_sources_direct(query, per_page=per_page)
+            for ds in direct_sources:
+                if ds["id"] not in sources_dict:
+                    sources_dict[ds["id"]] = ds
         except Exception:
             pass
 
-        # 2. If needed, supplement with direct source search
+        # 2. If needed, complement with works search
         if len(sources_dict) < per_page:
             try:
-                direct_sources = await self.search_sources_direct(query, per_page=per_page)
-                for ds in direct_sources:
-                    if ds["id"] not in sources_dict:
-                        sources_dict[ds["id"]] = ds
+                works = await self.search_works(query, per_page=min(10, per_page * 2))
+                for work in works:
+                    loc = work.get("primary_location") or {}
+                    source = loc.get("source") or {}
+                    source_id = source.get("id")
+                    if source_id and source_id not in sources_dict and source.get("type") == "journal":
+                        sources_dict[source_id] = self._normalize_source({
+                            "id": source_id,
+                            "display_name": source.get("display_name", "Unknown Journal"),
+                            "publisher": source.get("host_organization_name"),
+                            "issn_l": source.get("issn_l"),
+                            "is_oa": bool(source.get("is_oa", False)),
+                            "is_in_doaj": bool(source.get("is_in_doaj", False)),
+                            "sample_work_title": work.get("title", ""),
+                            "sample_work_doi": work.get("doi", ""),
+                        })
                     if len(sources_dict) >= per_page:
                         break
             except Exception:
                 pass
 
-        # 3. Retrieve full source metadata concurrently
-        selected_sources = list(sources_dict.items())[:per_page]
-
-        async def enrich_source(
-            s_id: str,
-            s_stub: dict[str, Any],
-        ) -> dict[str, Any]:
-            try:
-                full_source = await self.get_source(s_id)
-            except Exception:
-                full_source = None
-
-            if full_source:
-                norm = self._normalize_source(full_source)
-
-                if s_stub.get("sample_work_title"):
-                    norm["sample_work_title"] = s_stub["sample_work_title"]
-                    norm["sample_work_doi"] = s_stub["sample_work_doi"]
-
-                return norm
-
-            return self._normalize_source(s_stub)
-
-        return await asyncio.gather(
-            *[
-                enrich_source(s_id, s_stub)
-                for s_id, s_stub in selected_sources
-            ]
-        )
+        return list(sources_dict.values())[:per_page]
 
     @staticmethod
     def _normalize_source(item: dict[str, Any]) -> dict[str, Any]:
